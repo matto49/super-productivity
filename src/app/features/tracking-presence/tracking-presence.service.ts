@@ -14,7 +14,6 @@ import { distinctUntilChanged, map } from 'rxjs/operators';
 import { nanoid } from 'nanoid';
 import { selectCurrentTaskId } from '../tasks/store/task.selectors';
 import { setCurrentTask } from '../tasks/store/task.actions';
-import { selectIsIdle } from '../idle/store/idle.selectors';
 import {
   selectCurrentCycle,
   selectIsSessionRunning,
@@ -53,7 +52,6 @@ const VIEW_TICK_MS = 30_000;
 
 interface LocalDerivedState {
   taskId: string | null;
-  isIdle: boolean;
   isFocusRunning: boolean;
   focusCycle: number;
 }
@@ -61,7 +59,6 @@ interface LocalDerivedState {
 interface LocalSession {
   state: TrackingPresenceState;
   taskId: string | null;
-  reason?: 'idle';
 }
 
 /** Producer-built frames; `deviceLabel` is resolved once per send in `_doSend`. */
@@ -161,7 +158,6 @@ export class TrackingPresenceService implements OnDestroy {
   private _sessionId: string = '';
   private _seq = 0;
   private _sinceTs = 0;
-  private _lastTrackedTaskId: string | null = null;
   private _focusCycle: number | undefined;
   private _suppressNextStopBroadcast = false;
 
@@ -210,15 +206,13 @@ export class TrackingPresenceService implements OnDestroy {
     this._subs.add(
       combineLatest([
         this._store.select(selectCurrentTaskId),
-        this._store.select(selectIsIdle),
         this._store.select(selectIsSessionRunning),
         this._store.select(selectCurrentCycle),
       ])
         .pipe(
           map(
-            ([taskId, isIdle, isFocusRunning, focusCycle]): LocalDerivedState => ({
+            ([taskId, isFocusRunning, focusCycle]): LocalDerivedState => ({
               taskId,
-              isIdle,
               isFocusRunning,
               focusCycle,
             }),
@@ -226,7 +220,6 @@ export class TrackingPresenceService implements OnDestroy {
           distinctUntilChanged(
             (a, b) =>
               a.taskId === b.taskId &&
-              a.isIdle === b.isIdle &&
               a.isFocusRunning === b.isFocusRunning &&
               a.focusCycle === b.focusCycle,
           ),
@@ -257,9 +250,8 @@ export class TrackingPresenceService implements OnDestroy {
   stop(): Promise<void> {
     // A live producer session must announce its end before teardown. Best-effort
     // via the serialized send path (_broadcastState catches send errors).
-    if (this._current.state === 'tracking' || this._current.reason === 'idle') {
+    if (this._current.state === 'tracking') {
       this._current = { state: 'stopped', taskId: null };
-      this._lastTrackedTaskId = null;
       this._focusCycle = undefined;
       this._broadcastState();
     }
@@ -317,7 +309,6 @@ export class TrackingPresenceService implements OnDestroy {
         this._sessionId = nanoid();
         this._sinceTs = Date.now();
       }
-      this._lastTrackedTaskId = derived.taskId;
       this._current = { state: 'tracking', taskId: derived.taskId };
       this._startHeartbeat();
       this._broadcastState();
@@ -325,32 +316,9 @@ export class TrackingPresenceService implements OnDestroy {
     }
 
     const wasTracking = this._current.state === 'tracking';
-    const wasIdlePaused = this._current.reason === 'idle';
-    // 'idle' is only claimed when the idle event interrupted (or continues
-    // interrupting) a live session — an idle episode hours after a manual
-    // stop must not resurrect the old task on other devices.
-    const reason =
-      derived.isIdle && (wasTracking || wasIdlePaused) ? ('idle' as const) : undefined;
-    const next: LocalSession = {
-      state: 'stopped',
-      taskId: reason ? this._lastTrackedTaskId : null,
-      reason,
-    };
-    const reasonChanged = this._current.reason !== next.reason;
-    this._current = next;
-    if (reason) {
-      // Keep announcing during an idle pause: real pauses run for minutes,
-      // and without a heartbeat viewers' 90s staleness window would decay
-      // "Paused" into "Was tracking" while the producer sits right there.
-      this._startHeartbeat();
-    } else {
-      this._stopHeartbeat();
-      this._lastTrackedTaskId = null;
-    }
-
-    // Broadcasting `stopped` is only this device's business if it was the one
-    // tracking (or its idle pause is ending/starting) — see class invariants.
-    if (!wasTracking && !reasonChanged) {
+    this._current = { state: 'stopped', taskId: null };
+    this._stopHeartbeat();
+    if (!wasTracking) {
       return;
     }
     if (this._suppressNextStopBroadcast) {
@@ -370,7 +338,6 @@ export class TrackingPresenceService implements OnDestroy {
       sessionId: this._sessionId,
       seq: ++this._seq,
       state: this._current.state,
-      ...(this._current.reason ? { reason: this._current.reason } : {}),
       taskId: this._current.taskId,
       sinceTs: this._sinceTs,
       ...(this._focusCycle !== undefined ? { focusCycle: this._focusCycle } : {}),
@@ -385,7 +352,7 @@ export class TrackingPresenceService implements OnDestroy {
       return;
     }
     this._heartbeatTimer = setInterval(() => {
-      if (this._current.state === 'tracking' || this._current.reason === 'idle') {
+      if (this._current.state === 'tracking') {
         this._broadcastState();
       }
     }, PRESENCE_HEARTBEAT_MS);

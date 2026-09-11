@@ -30,14 +30,6 @@ const { join } = require('path');
 const BIN_NAME = 'superproductivity'; // must match linux.executableName
 const RENAMED = 'superproductivity-bin';
 const WRAPPER_SRC = join(__dirname, '..', 'build', 'linux', 'snap-wrapper.sh');
-const WAYLAND_IDLE_HELPER_SRC = join(
-  __dirname,
-  '..',
-  'electron',
-  'bin',
-  'wayland-idle-helper',
-);
-const WAYLAND_IDLE_HELPER_DEST = 'wayland-idle-helper';
 const MAC_ICON_SOURCE = join(__dirname, '..', 'build', 'icon.icns');
 
 const isTruthyEnv = (value) => value === '1' || value?.toLowerCase() === 'true';
@@ -77,26 +69,6 @@ async function afterPack(context) {
   const { appOutDir } = context;
   const binPath = join(appOutDir, BIN_NAME);
   const renamedPath = join(appOutDir, RENAMED);
-  const helperDestPath = join(appOutDir, WAYLAND_IDLE_HELPER_DEST);
-
-  const installWaylandIdleHelper = async () => {
-    if (isTruthyEnv(process.env.SP_SKIP_WAYLAND_IDLE_HELPER_BUILD)) {
-      console.warn(
-        '[afterPack] Skipping Wayland idle helper copy because SP_SKIP_WAYLAND_IDLE_HELPER_BUILD is set',
-      );
-      return;
-    }
-
-    const helperStat = await fs.stat(WAYLAND_IDLE_HELPER_SRC).catch(() => null);
-    if (!helperStat) {
-      throw new Error(
-        `[afterPack] ${WAYLAND_IDLE_HELPER_SRC} not found. Linux packages must include the Wayland idle helper; install Rust/Cargo before packaging or set SP_SKIP_WAYLAND_IDLE_HELPER_BUILD=1 to intentionally omit ext-idle-notify support.`,
-      );
-    }
-
-    await fs.copyFile(WAYLAND_IDLE_HELPER_SRC, helperDestPath);
-    await fs.chmod(helperDestPath, 0o755);
-  };
 
   // Read wrapper content BEFORE touching appOutDir. If the source file is
   // missing or unreadable we fail fast with the Electron binary still in
@@ -119,7 +91,6 @@ async function afterPack(context) {
   if (binStat && renamedStat) {
     const head = await fs.readFile(binPath, 'utf8').catch(() => '');
     if (head.startsWith('#!')) {
-      await installWaylandIdleHelper();
       console.log(`[afterPack] wrapper already installed`);
       return;
     }
@@ -148,7 +119,6 @@ async function afterPack(context) {
   }
 
   await fs.chmod(renamedPath, 0o755);
-  await installWaylandIdleHelper();
 
   console.log(
     `[afterPack] Installed argv wrapper: ${BIN_NAME} -> ${RENAMED} + shell wrapper`,

@@ -19,7 +19,6 @@ import * as actions from './focus-mode.actions';
 import * as selectors from './focus-mode.selectors';
 import { FocusModeMode, FocusScreen, TimerState } from '../focus-mode.model';
 import { unsetCurrentTask, setCurrentTask } from '../../tasks/store/task.actions';
-import { openIdleDialog } from '../../idle/store/idle.actions';
 import { selectLastCurrentTask, selectTaskById } from '../../tasks/store/task.selectors';
 import {
   selectFocusModeConfig,
@@ -1032,23 +1031,6 @@ describe('FocusModeEffects', () => {
 
       effects.cancelSession$.subscribe((action) => {
         expect(action).toEqual(unsetCurrentTask());
-        done();
-      });
-    });
-  });
-
-  describe('pauseOnIdle$', () => {
-    it('should dispatch pauseFocusSession when openIdleDialog is dispatched', (done) => {
-      actions$ = of(
-        openIdleDialog({
-          lastCurrentTaskId: null,
-          enabledSimpleStopWatchCounters: [],
-          wasFocusSessionRunning: false,
-        }),
-      );
-
-      effects.pauseOnIdle$.subscribe((action) => {
-        expect(action.type).toEqual(actions.pauseFocusSession.type);
         done();
       });
     });

@@ -27,7 +27,6 @@ import { FocusModeLocalSettingsService } from '../../config/focus-mode-local-set
 import { IS_ELECTRON } from '../../../app.constants';
 import { setCurrentTask, unsetCurrentTask } from '../../tasks/store/task.actions';
 import { selectLastCurrentTask, selectTaskById } from '../../tasks/store/task.selectors';
-import { openIdleDialog } from '../../idle/store/idle.actions';
 import { LS } from '../../../core/persistence/storage-keys.const';
 import {
   selectFocusModeConfig,
@@ -450,7 +449,7 @@ export class FocusModeEffects {
 
   // Effect 3b: Auto-start the Flowtime break when the user explicitly ends their
   // session. Triggers on endFlowtimeSession — NOT pauseFocusSession (which is
-  // fired by sync-stop, idle, and the regular pause button).
+  // fired by sync-stop and the regular pause button).
   //
   // Mirrors autoStartBreakOnSessionComplete$ (Pomodoro). The action ORDER matters:
   // completeFocusSession (isManual:FALSE) → [unsetCurrentTask] → startBreak.
@@ -714,17 +713,6 @@ export class FocusModeEffects {
     this.actions$.pipe(
       ofType(actions.cancelFocusSession),
       map(() => unsetCurrentTask()),
-    ),
-  );
-
-  // Pause on idle
-  pauseOnIdle$ = createEffect(() =>
-    this.actions$.pipe(
-      ofType(openIdleDialog),
-      withLatestFrom(this.taskService.currentTaskId$),
-      map(([_, currentTaskId]) =>
-        actions.pauseFocusSession({ pausedTaskId: currentTaskId }),
-      ),
     ),
   );
 

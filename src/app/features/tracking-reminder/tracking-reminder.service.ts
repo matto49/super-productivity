@@ -1,5 +1,4 @@
 import { Injectable, inject } from '@angular/core';
-import { IdleService } from '../idle/idle.service';
 import { TaskService } from '../tasks/task.service';
 import { GlobalConfigService } from '../config/global-config.service';
 import { combineLatest, EMPTY, merge, Observable, of, Subject } from 'rxjs';
@@ -43,7 +42,6 @@ const DESKTOP_NOTIFICATION_THROTTLE = 60 * 1000;
   providedIn: 'root',
 })
 export class TrackingReminderService {
-  private _idleService = inject(IdleService);
   private _taskService = inject(TaskService);
   private _globalConfigService = inject(GlobalConfigService);
   private _bannerService = inject(BannerService);
@@ -69,7 +67,6 @@ export class TrackingReminderService {
 
   _hideTrigger$: Observable<any> = merge(
     this._taskService.currentTaskId$.pipe(filter((currentId) => !!currentId)),
-    this._idleService.isIdle$.pipe(filter((isIdle) => isIdle)),
   );
 
   private _isFocusModeActive$: Observable<boolean> = combineLatest([
@@ -93,12 +90,11 @@ export class TrackingReminderService {
         ? EMPTY
         : combineLatest([
             this._taskService.currentTaskId$,
-            this._idleService.isIdle$,
             this._isFocusModeActive$,
           ]).pipe(
             map(
-              ([currentTaskId, isIdle, isFocusModeActive]) =>
-                !currentTaskId && !isIdle && !isFocusModeActive,
+              ([currentTaskId, isFocusModeActive]) =>
+                !currentTaskId && !isFocusModeActive,
             ),
             distinctUntilChanged(),
             switchMap((isEnabled) => (isEnabled ? this._resetableCounter$ : of(0))),

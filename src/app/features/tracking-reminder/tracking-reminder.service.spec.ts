@@ -2,7 +2,6 @@ import { TestBed, fakeAsync, tick, discardPeriodicTasks } from '@angular/core/te
 import { provideMockStore, MockStore } from '@ngrx/store/testing';
 import { BehaviorSubject } from 'rxjs';
 import { TrackingReminderService } from './tracking-reminder.service';
-import { IdleService } from '../idle/idle.service';
 import { TaskService } from '../tasks/task.service';
 import { GlobalConfigService } from '../config/global-config.service';
 import { BannerService } from '../../core/banner/banner.service';
@@ -47,13 +46,11 @@ describe('TrackingReminderService', () => {
   let service: TrackingReminderService;
   let store: MockStore;
   let currentTaskId$: BehaviorSubject<string | null>;
-  let isIdle$: BehaviorSubject<boolean>;
   let cfg$: BehaviorSubject<GlobalConfigState>;
   let sound$: BehaviorSubject<any>;
 
   beforeEach(() => {
     currentTaskId$ = new BehaviorSubject<string | null>(null);
-    isIdle$ = new BehaviorSubject<boolean>(false);
     cfg$ = new BehaviorSubject<GlobalConfigState>(createMockCfg());
     sound$ = new BehaviorSubject<any>({ volume: 75 });
 
@@ -67,10 +64,6 @@ describe('TrackingReminderService', () => {
             { selector: selectCurrentScreen, value: FocusScreen.Main },
           ],
         }),
-        {
-          provide: IdleService,
-          useValue: { isIdle$: isIdle$.asObservable() },
-        },
         {
           provide: TaskService,
           useValue: { currentTaskId$: currentTaskId$.asObservable() },
