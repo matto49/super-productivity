@@ -1,18 +1,13 @@
 import { TestBed } from '@angular/core/testing';
 import { BehaviorSubject, of, Subject } from 'rxjs';
-import { Action } from '@ngrx/store';
 import { TakeABreakService } from './take-a-break.service';
-import { idleDialogResult } from '../idle/store/idle.actions';
-import { IdleTrackItem } from '../idle/dialog-idle/dialog-idle.model';
 import { TaskService } from '../tasks/task.service';
 import { GlobalTrackingIntervalService } from '../../core/global-tracking-interval/global-tracking-interval.service';
-import { IdleService } from '../idle/idle.service';
 import { GlobalConfigService } from '../config/global-config.service';
 import { NotifyService } from '../../core/notify/notify.service';
 import { BannerService } from '../../core/banner/banner.service';
 import { UiHelperService } from '../ui-helper/ui-helper.service';
 import { SnackService } from '../../core/snack/snack.service';
-import { LOCAL_ACTIONS } from '../../util/local-actions.token';
 import { BannerId } from '../../core/banner/banner.model';
 import { Tick } from '../../core/global-tracking-interval/tick.model';
 import { T } from '../../t.const';
@@ -22,12 +17,10 @@ describe('TakeABreakService', () => {
   let taskService: jasmine.SpyObj<TaskService>;
   let snackService: jasmine.SpyObj<SnackService>;
   let bannerService: jasmine.SpyObj<BannerService>;
-  let actions$: Subject<Action>;
   let tick$: Subject<Tick>;
   let currentTaskId$: BehaviorSubject<string | null>;
 
   const configure = (isTakeABreakEnabled = true): void => {
-    actions$ = new Subject<Action>();
     tick$ = new Subject<Tick>();
     taskService = jasmine.createSpyObj<TaskService>('TaskService', [
       'pauseCurrent',
@@ -53,9 +46,7 @@ describe('TakeABreakService', () => {
         { provide: TaskService, useValue: taskService },
         { provide: SnackService, useValue: snackService },
         { provide: BannerService, useValue: bannerService },
-        { provide: LOCAL_ACTIONS, useValue: actions$ },
         { provide: GlobalTrackingIntervalService, useValue: { tick$: tick$ } },
-        { provide: IdleService, useValue: { isIdle$: of(false) } },
         {
           provide: GlobalConfigService,
           useValue: {
@@ -83,113 +74,7 @@ describe('TakeABreakService', () => {
 
   beforeEach(() => configure());
 
-  describe('idle dialog result', () => {
-    const IDLE_TIME = 5 * 60000;
-    const BREAK_ITEM: IdleTrackItem = {
-      type: 'BREAK',
-      time: 'IDLE_TIME',
-      simpleCounterToggleBtns: [],
-    };
-    // only SPLIT mode sends a resolved number; BREAK/TASK send the 'IDLE_TIME'
-    // placeholder with the duration in the action's separate idleTime field
-    const SPLIT_TASK_ITEM: IdleTrackItem = {
-      type: 'TASK',
-      time: 60000,
-      title: 'Some task',
-      simpleCounterToggleBtns: [],
-    };
-    const TASK_ITEM: IdleTrackItem = {
-      type: 'TASK',
-      time: 'IDLE_TIME',
-      title: 'Some task',
-      simpleCounterToggleBtns: [],
-    };
-
-    const dialogResult = (
-      trackItems: IdleTrackItem[],
-      isResetBreakTimer: boolean,
-    ): Action =>
-      idleDialogResult({
-        trackItems,
-        isResetBreakTimer,
-        wasFocusSessionRunning: false,
-        idleTime: IDLE_TIME,
-      });
-
-    let emitted: number[];
-    let sub: { unsubscribe: () => void };
-    const current = (): number | undefined => emitted[emitted.length - 1];
-
-    beforeEach(() => {
-      emitted = [];
-      sub = service.timeWorkingWithoutABreak$.subscribe((v) => emitted.push(v));
-      // seed the working-without-a-break accumulator
-      service.otherNoBreakTIme$.next(10000);
-      expect(current()).toBe(10000);
-    });
-
-    afterEach(() => sub.unsubscribe());
-
-    it('resets the timer when a reset was requested', () => {
-      actions$.next(dialogResult([], true));
-      expect(current()).toBe(0);
-    });
-
-    it('does not reset the timer when skipping without a reset request', () => {
-      actions$.next(dialogResult([], false));
-      expect(current()).toBe(10000);
-    });
-
-    it('does not reset the timer for a tracked break when the user opted out', () => {
-      actions$.next(dialogResult([BREAK_ITEM], false));
-      expect(current()).toBe(10000);
-    });
-
-    // idle time tracked to tasks does not count toward the break reminder,
-    // regardless of the shape the dialog mode sends (#9352)
-    it("does not add idle time tracked to tasks ('IDLE_TIME' shape)", () => {
-      actions$.next(dialogResult([BREAK_ITEM, TASK_ITEM], false));
-      expect(current()).toBe(10000);
-    });
-
-    it('does not add idle time tracked to tasks (SPLIT numeric shape)', () => {
-      actions$.next(dialogResult([BREAK_ITEM, SPLIT_TASK_ITEM], false));
-      expect(current()).toBe(10000);
-    });
-
-    it('dismisses the reminder banner when the timer is reset', () => {
-      actions$.next(dialogResult([], true));
-
-      expect(bannerService.dismiss).toHaveBeenCalledTimes(1);
-      expect(bannerService.dismiss).toHaveBeenCalledWith(BannerId.TakeABreak);
-    });
-  });
-
   describe('reminder teardown', () => {
-    // The idle dialog used to reset the counter without reaching _triggerReset$,
-    // so the banner stayed up and the lock-screen / fullscreen-blocker subjects
-    // stayed latched at `true` for the rest of the session. (Focus-mode breaks
-    // had the same problem; that one is guarded in focus-mode.effects.spec.ts,
-    // since the routing lives in the effect.)
-    it('dismisses the reminder when the idle dialog requests a reset', () => {
-      const emitted: number[] = [];
-      const sub = service.timeWorkingWithoutABreak$.subscribe((v) => emitted.push(v));
-      service.otherNoBreakTIme$.next(10000);
-
-      actions$.next(
-        idleDialogResult({
-          trackItems: [],
-          isResetBreakTimer: true,
-          wasFocusSessionRunning: false,
-          idleTime: 60000,
-        }),
-      );
-
-      expect(emitted[emitted.length - 1]).toBe(0);
-      expect(bannerService.dismiss).toHaveBeenCalledWith(BannerId.TakeABreak);
-      sub.unsubscribe();
-    });
-
     it('tears down only once while nothing is being tracked', () => {
       const emitted: number[] = [];
       const sub = service.timeWorkingWithoutABreak$.subscribe((v) => emitted.push(v));
@@ -300,7 +185,7 @@ describe('TakeABreakService', () => {
     });
   });
 
-  describe('with idle tracking enabled', () => {
+  describe('untracked stretches', () => {
     it('counts a long stretch without a tracked task as a break', () => {
       const emitted: number[] = [];
       const sub = service.timeWorkingWithoutABreak$.subscribe((v) => emitted.push(v));
@@ -314,67 +199,15 @@ describe('TakeABreakService', () => {
       sub.unsubscribe();
     });
 
-    // Characterises the overlap between the two reset mechanisms: while the user
-    // is away, the current task is already deselected, so the "long stretch with
-    // no tracked task" reset fires during the absence -- before the idle dialog
-    // is ever answered. Answering it with the reset checkbox explicitly UNCHECKED
-    // therefore cannot preserve the pre-idle counter; it is already gone.
-    it('lets the untracked-stretch reset win over an explicit opt-out in the idle dialog', () => {
-      const emitted: number[] = [];
-      const sub = service.timeWorkingWithoutABreak$.subscribe((v) => emitted.push(v));
-      service.otherNoBreakTIme$.next(89 * 60000);
-      expect(emitted[emitted.length - 1]).toBe(89 * 60000);
-
-      // user goes idle -> handleIdleInit$ deselects the task -> ticks accumulate
-      // as "no current task" for longer than BREAK_TRIGGER_DURATION
-      tick$.next({ duration: 11 * 60000, date: '2026-07-28', timestamp: 0 });
-      expect(emitted[emitted.length - 1]).toBe(0);
-
-      // user returns and says "that was work on a task, do NOT reset my timer"
-      actions$.next(
-        idleDialogResult({
-          trackItems: [
-            {
-              type: 'TASK',
-              time: 'IDLE_TIME',
-              title: 'Some task',
-              simpleCounterToggleBtns: [],
-            },
-          ],
-          isResetBreakTimer: false,
-          wasFocusSessionRunning: false,
-          idleTime: 11 * 60000,
-        }),
-      );
-
-      expect(emitted[emitted.length - 1]).toBe(0);
-      sub.unsubscribe();
-    });
-
     // The other half of the same overlap, and the reason the reset is edge- and
     // not level-triggered: once it has fired, time added later in the SAME
     // untracked stretch survives. With a level trigger the next tick wiped it
-    // again -- and every tick after. Idle-dialog results no longer feed the
-    // counter at all (#9352), so the late addition comes from otherNoBreakTIme$.
+    // again -- and every tick after.
     it('keeps time added after the untracked-stretch reset', () => {
       const emitted: number[] = [];
       const sub = service.timeWorkingWithoutABreak$.subscribe((v) => emitted.push(v));
 
       tick$.next({ duration: 11 * 60000, date: '2026-07-28', timestamp: 0 });
-      expect(emitted[emitted.length - 1]).toBe(0);
-
-      // a SPLIT-mode opt-out contributes nothing to the counter (#9352)
-      actions$.next(
-        idleDialogResult({
-          trackItems: [
-            { type: 'TASK', time: 6 * 60000, title: 'A', simpleCounterToggleBtns: [] },
-            { type: 'TASK', time: 5 * 60000, title: 'B', simpleCounterToggleBtns: [] },
-          ],
-          isResetBreakTimer: false,
-          wasFocusSessionRunning: false,
-          idleTime: 11 * 60000,
-        }),
-      );
       expect(emitted[emitted.length - 1]).toBe(0);
 
       service.otherNoBreakTIme$.next(60000);

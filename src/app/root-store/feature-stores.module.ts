@@ -15,8 +15,6 @@ import {
   FOCUS_MODE_FEATURE_KEY,
   focusModeReducer,
 } from '../features/focus-mode/store/focus-mode.reducer';
-import { IDLE_FEATURE_KEY, idleReducer } from '../features/idle/store/idle.reducer';
-import { IdleEffects } from '../features/idle/store/idle.effects';
 import { issueProvidersFeature } from '../features/issue/store/issue-provider.reducer';
 import { PollToBacklogEffects } from '../features/issue/store/poll-to-backlog.effects';
 import { PollIssueUpdatesEffects } from '../features/issue/store/poll-issue-updates.effects';
@@ -123,9 +121,6 @@ import {
 
     StoreModule.forFeature(FOCUS_MODE_FEATURE_KEY, focusModeReducer),
     // FocusModeEffects lazy-loaded in main.ts via requestIdleCallback
-
-    StoreModule.forFeature(IDLE_FEATURE_KEY, idleReducer),
-    EffectsModule.forFeature([IdleEffects]),
 
     StoreModule.forFeature(issueProvidersFeature),
     EffectsModule.forFeature([PollToBacklogEffects, PollIssueUpdatesEffects]),

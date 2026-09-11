@@ -2,7 +2,6 @@ import { fakeAsync, TestBed, tick } from '@angular/core/testing';
 import { SyncTriggerService } from './sync-trigger.service';
 import { GlobalConfigService } from '../../features/config/global-config.service';
 import { DataInitStateService } from '../../core/data-init/data-init-state.service';
-import { IdleService } from '../../features/idle/idle.service';
 import { SyncWrapperService } from './sync-wrapper.service';
 import { HydrationStateService } from '../../op-log/apply/hydration-state.service';
 import { Store } from '@ngrx/store';
@@ -12,7 +11,6 @@ describe('SyncTriggerService', () => {
   let service: SyncTriggerService;
   let globalConfigService: jasmine.SpyObj<GlobalConfigService>;
   let dataInitStateService: jasmine.SpyObj<DataInitStateService>;
-  let idleService: jasmine.SpyObj<IdleService>;
   let syncWrapperService: jasmine.SpyObj<SyncWrapperService>;
   let store: jasmine.SpyObj<Store>;
 
@@ -22,15 +20,12 @@ describe('SyncTriggerService', () => {
 
     globalConfigService = jasmine.createSpyObj('GlobalConfigService', [], {
       cfg$: of({ sync: { isEnabled: true } }),
-      idle$: of({ isEnableIdleTimeTracking: false }),
+      // Imported legacy settings must not suppress user-activity sync.
+      idle$: of({ isEnableIdleTimeTracking: true }),
     });
 
     dataInitStateService = jasmine.createSpyObj('DataInitStateService', [], {
       isAllDataLoadedInitially$: isAllDataLoadedSubject.asObservable(),
-    });
-
-    idleService = jasmine.createSpyObj('IdleService', [], {
-      isIdle$: of(false),
     });
 
     syncWrapperService = jasmine.createSpyObj('SyncWrapperService', [], {
@@ -46,7 +41,6 @@ describe('SyncTriggerService', () => {
         SyncTriggerService,
         { provide: GlobalConfigService, useValue: globalConfigService },
         { provide: DataInitStateService, useValue: dataInitStateService },
-        { provide: IdleService, useValue: idleService },
         { provide: SyncWrapperService, useValue: syncWrapperService },
         { provide: Store, useValue: store },
       ],
@@ -131,12 +125,6 @@ describe('SyncTriggerService', () => {
             }),
           },
           {
-            provide: IdleService,
-            useValue: jasmine.createSpyObj('IdleService', [], {
-              isIdle$: of(false),
-            }),
-          },
-          {
             provide: SyncWrapperService,
             useValue: jasmine.createSpyObj('SyncWrapperService', [], {
               syncProviderId$: of(null),
@@ -183,12 +171,6 @@ describe('SyncTriggerService', () => {
             provide: DataInitStateService,
             useValue: jasmine.createSpyObj('DataInitStateService', [], {
               isAllDataLoadedInitially$: isAllDataLoaded$.asObservable(),
-            }),
-          },
-          {
-            provide: IdleService,
-            useValue: jasmine.createSpyObj('IdleService', [], {
-              isIdle$: of(false),
             }),
           },
           {
@@ -296,6 +278,19 @@ describe('SyncTriggerService', () => {
     const SYNC_INTERVAL = 10000;
     const DEBOUNCE = 100;
 
+    it('syncs on focus even when imported settings enable the removed idle feature', fakeAsync(() => {
+      const emissions: unknown[] = [];
+      const sub = service
+        .getSyncTrigger$(SYNC_INTERVAL, false)
+        .subscribe((v) => emissions.push(v));
+      tick(SYNC_INTERVAL + DEBOUNCE + 50);
+      const beforeFocus = emissions.length;
+      window.dispatchEvent(new Event('focus'));
+      tick(DEBOUNCE + 50);
+      expect(emissions.length).toBeGreaterThan(beforeFocus);
+      sub.unsubscribe();
+    }));
+
     it('should fire periodically when useIntervalTimer=true (file-based providers)', fakeAsync(() => {
       const emissions: unknown[] = [];
       const sub = service
@@ -361,12 +356,6 @@ describe('SyncTriggerService', () => {
           provide: DataInitStateService,
           useValue: jasmine.createSpyObj('DataInitStateService', [], {
             isAllDataLoadedInitially$: isAllDataLoaded$.asObservable(),
-          }),
-        },
-        {
-          provide: IdleService,
-          useValue: jasmine.createSpyObj('IdleService', [], {
-            isIdle$: of(false),
           }),
         },
         {

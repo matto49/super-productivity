@@ -93,7 +93,7 @@
     "video:keyboard": "cross-env REEL_VARIANT=keyboard npm run video",
     "video:mobile": "cross-env REEL_VARIANT=mobile npm run video",
     "electron": "NODE_ENV=PROD electron .",
-    "electron:build": "node ./tools/build-wayland-idle-helper.js && tsc -p electron/tsconfig.electron.json && node electron/scripts/bundle-preload.js",
+    "electron:build": "tsc -p electron/tsconfig.electron.json && node electron/scripts/bundle-preload.js",
     "electron:verify-asar": "node tools/verify-electron-requires.js .tmp/app-builds/linux-unpacked/resources/app.asar",
     "electron:watch": "tsc -p electron/tsconfig.electron.json --watch",
     "electronBuilderOnly": "electron-builder",

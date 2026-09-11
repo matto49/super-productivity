@@ -11,14 +11,12 @@ import { SyncProviderManager } from '../../op-log/sync-providers/provider-manage
 import { OperationEncryptionService } from '../../op-log/sync/operation-encryption.service';
 import { SnackService } from '../../core/snack/snack.service';
 import { selectCurrentTaskId } from '../tasks/store/task.selectors';
-import { selectIsIdle } from '../idle/store/idle.selectors';
 import {
   selectCurrentCycle,
   selectIsSessionRunning,
 } from '../focus-mode/store/focus-mode.selectors';
 import { setCurrentTask } from '../tasks/store/task.actions';
 import {
-  PRESENCE_HEARTBEAT_MS,
   PRESENCE_HIDE_STALE_AFTER_MS,
   PRESENCE_STOPPED_LINGER_MS,
   TrackingPresenceCmd,
@@ -61,12 +59,6 @@ describe('TrackingPresenceService', () => {
 
   const setLocalTaskId = (taskId: string | null): void => {
     store.overrideSelector(selectCurrentTaskId, taskId);
-    store.refreshState();
-    tick();
-  };
-
-  const setIdle = (isIdle: boolean): void => {
-    store.overrideSelector(selectIsIdle, isIdle);
     store.refreshState();
     tick();
   };
@@ -123,7 +115,6 @@ describe('TrackingPresenceService', () => {
         provideMockStore({
           selectors: [
             { selector: selectCurrentTaskId, value: null },
-            { selector: selectIsIdle, value: false },
             { selector: selectIsSessionRunning, value: false },
             { selector: selectCurrentCycle, value: 1 },
           ],
@@ -219,78 +210,10 @@ describe('TrackingPresenceService', () => {
       flush();
     }));
 
-    it('broadcasts stopped with reason idle and the paused taskId on idle pause', fakeAsync(() => {
-      service.start();
-      tick();
-      setLocalTaskId('task-1');
-      // the idle flow sets isIdle and clears the current task
-      setIdle(true);
-      setLocalTaskId(null);
-
-      const states = sentStates();
-      const last = states[states.length - 1];
-      expect(last.state).toBe('stopped');
-      expect(last.reason).toBe('idle');
-      expect(last.taskId).toBe('task-1');
-      service.stop();
-      flush();
-    }));
-
-    it('does not resurrect an old task when idle fires after a plain stop', fakeAsync(() => {
-      service.start();
-      tick();
-      setLocalTaskId('task-1');
-      setLocalTaskId(null); // plain manual stop
-      const countAfterStop = sentStates().length;
-
-      // idle fires much later, unrelated to any live session
-      setIdle(true);
-
-      expect(sentStates().length).toBe(countAfterStop);
-      service.stop();
-      flush();
-    }));
-
-    it('keeps heartbeating during an idle pause so viewers do not decay it to stale', fakeAsync(() => {
-      service.start();
-      tick();
-      setLocalTaskId('task-1');
-      setIdle(true);
-      setLocalTaskId(null); // idle pause begins
-      const countAtPause = sentStates().length;
-
-      tick(PRESENCE_HEARTBEAT_MS + 1);
-
-      const states = sentStates();
-      expect(states.length).toBe(countAtPause + 1);
-      expect(states[states.length - 1].reason).toBe('idle');
-      service.stop();
-      flush();
-    }));
-
     it('broadcasts a final stopped frame when stop() interrupts live tracking', fakeAsync(() => {
       service.start();
       tick();
       setLocalTaskId('task-1');
-      const statesBefore = sentStates().length;
-
-      service.stop();
-      tick();
-
-      const states = sentStates();
-      expect(states.length).toBe(statesBefore + 1);
-      const last = states[states.length - 1];
-      expect(last.state).toBe('stopped');
-      expect(last.reason).toBeUndefined();
-      flush();
-    }));
-
-    it('broadcasts a final stopped frame when stop() interrupts an idle pause', fakeAsync(() => {
-      service.start();
-      tick();
-      setLocalTaskId('task-1');
-      setIdle(true);
-      setLocalTaskId(null); // idle pause begins — viewers show "Paused"
       const statesBefore = sentStates().length;
 
       service.stop();

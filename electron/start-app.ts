@@ -1,6 +1,6 @@
 import { initIpcInterfaces } from './ipc-handler';
 import { initPluginOAuth } from './plugin-oauth';
-import electronLog, { info, log, warn } from 'electron-log/main';
+import electronLog, { log, warn } from 'electron-log/main';
 import { App, app, BrowserWindow, globalShortcut, ipcMain, powerMonitor } from 'electron';
 import { join } from 'path';
 import { initDebug } from './debug';
@@ -9,12 +9,9 @@ import { IPC } from './shared-with-frontend/ipc-events.const';
 import { initBackupAdapter } from './backup';
 import { initLocalFileSyncAdapter } from './local-file-sync';
 import { initFullScreenBlocker } from './full-screen-blocker';
-import { CONFIG } from './CONFIG';
-import { lazySetInterval } from './shared-with-frontend/lazy-set-interval';
 import { initIndicator } from './indicator';
 import { quitApp, showOrFocus } from './various-shared';
 import { closeWinAndQuit, createWindow, getIsAppReady } from './main-window';
-import { IdleTimeHandler } from './idle-time-handler';
 import { destroyTaskWidget } from './task-widget/task-widget';
 import {
   initializeProtocolHandling,
@@ -52,7 +49,6 @@ if (IS_DEV) {
 const appIN: App = app;
 
 let mainWin: BrowserWindow;
-let idleTimeHandler: IdleTimeHandler;
 
 export const startApp = (): void => {
   // Initialize protocol handling (registers second-instance listener for URL forwarding)
@@ -318,83 +314,6 @@ export const startApp = (): void => {
   });
 
   appIN.on('ready', () => {
-    // Initialize idle time handler
-    idleTimeHandler = new IdleTimeHandler();
-
-    let suspendStart: number;
-    // Prevent overlapping async idle checks.
-    // lazySetInterval schedules the next tick regardless of whether the previous
-    // check finished. Our idle detection on Wayland may spawn external commands
-    // (gdbus/dbus-send/xprintidle/loginctl) which can take close to or longer than
-    // the poll interval. Without this guard, multiple checks can run concurrently,
-    // causing timeouts and subsequent 0ms readings, which looks like "only one
-    // idle event was ever sent". This ensures at most one check runs at a time.
-    let isCheckingIdle = false;
-    const sendIdleMsgIfOverMin = (
-      idleTime: number,
-    ): { sent: boolean; reason?: string } => {
-      // sometimes when starting a second instance we get here although we don't want to
-      if (!mainWin) {
-        info(
-          'special case occurred when trackTimeFn is called even though, this is a second instance of the app',
-        );
-        return { sent: false, reason: 'no-window' };
-      }
-
-      if (getIsQuiting()) {
-        return { sent: false, reason: 'quitting' };
-      }
-
-      if (idleTime <= CONFIG.MIN_IDLE_TIME) {
-        return { sent: false, reason: 'below-threshold' };
-      }
-
-      mainWin.webContents.send(IPC.IDLE_TIME, idleTime);
-      return { sent: true };
-    };
-
-    // --------IDLE HANDLING---------
-    let consecutiveFailures = 0;
-    // init time tracking interval
-    log(
-      `🚀 Starting idle time tracking (interval: ${CONFIG.IDLE_PING_INTERVAL}ms, threshold: ${CONFIG.MIN_IDLE_TIME}ms)`,
-    );
-    const stopIdleChecks: () => void = lazySetInterval(async (): Promise<void> => {
-      // Skip if a previous check is still in flight
-      if (isCheckingIdle) {
-        return;
-      }
-      isCheckingIdle = true;
-      const startTime = Date.now();
-      try {
-        const idleTime = await idleTimeHandler.getIdleTime();
-        const checkDuration = Date.now() - startTime;
-
-        consecutiveFailures = 0;
-        const sendResult = sendIdleMsgIfOverMin(idleTime);
-        const actionSummary = sendResult.sent
-          ? 'sent'
-          : `skipped:${sendResult.reason ?? 'unknown'}`;
-        const logParts = [
-          `idle=${idleTime}ms`,
-          `method=${idleTimeHandler.currentMethod}`,
-          `duration=${checkDuration}ms`,
-          `threshold=${CONFIG.MIN_IDLE_TIME}ms`,
-          `action=${actionSummary}`,
-        ];
-        electronLog.debug(`🕘 Idle check (${logParts.join(', ')})`);
-      } catch (error) {
-        consecutiveFailures += 1;
-        log('💥 Error getting idle time, falling back to powerMonitor:', error);
-        if (consecutiveFailures >= 3) {
-          stopIdleChecks();
-        }
-      } finally {
-        isCheckingIdle = false;
-      }
-    }, CONFIG.IDLE_PING_INTERVAL);
-    // --------END IDLE HANDLING---------
-
     // Track whether window was visible before suspend/lock so we only
     // restore keyboard focus for windows that were actually in use.
     // Using showOrFocus() unconditionally would surface hidden/minimized
@@ -405,7 +324,6 @@ export const startApp = (): void => {
       log('powerMonitor: System suspend detected');
       wasVisibleBeforeSuspend = mainWin.isVisible() && !mainWin.isMinimized();
       setIsLocked(true);
-      suspendStart = Date.now();
       mainWin.webContents.send(IPC.SUSPEND);
     });
 
@@ -413,15 +331,12 @@ export const startApp = (): void => {
       log('powerMonitor: Screen lock detected');
       wasVisibleBeforeSuspend = mainWin.isVisible() && !mainWin.isMinimized();
       setIsLocked(true);
-      suspendStart = Date.now();
       mainWin.webContents.send(IPC.SUSPEND);
     });
 
     powerMonitor.on('resume', () => {
-      const idleTime = Date.now() - suspendStart;
-      log(`powerMonitor: System resume detected. Idle time: ${idleTime}ms`);
+      log('powerMonitor: System resume detected');
       setIsLocked(false);
-      sendIdleMsgIfOverMin(idleTime);
       mainWin.webContents.send(IPC.RESUME);
       // Restore keyboard focus only if window was visible before suspend (electron#20464)
       if (wasVisibleBeforeSuspend) {
@@ -430,10 +345,8 @@ export const startApp = (): void => {
     });
 
     powerMonitor.on('unlock-screen', () => {
-      const idleTime = Date.now() - suspendStart;
-      log(`powerMonitor: Screen unlock detected. Idle time: ${idleTime}ms`);
+      log('powerMonitor: Screen unlock detected');
       setIsLocked(false);
-      sendIdleMsgIfOverMin(idleTime);
       mainWin.webContents.send(IPC.RESUME);
       // Restore keyboard focus only if window was visible before lock (electron#20464)
       if (wasVisibleBeforeSuspend) {
@@ -463,7 +376,6 @@ export const startApp = (): void => {
       return;
     }
     // isQuiting=true: all before-close IPC work is complete — safe to clean up.
-    idleTimeHandler?.dispose();
     destroyTaskWidget();
     if (global.gc) {
       global.gc();

@@ -24,7 +24,6 @@ import {
   SYNC_DEFAULT_AUDIT_TIME,
   SYNC_MIN_INTERVAL,
 } from './sync.const';
-import { IdleService } from '../../features/idle/idle.service';
 import { IS_ELECTRON } from '../../app.constants';
 import { GlobalConfigState } from '../../features/config/global-config.model';
 import { IS_ANDROID_WEB_VIEW } from '../../util/is-android-web-view';
@@ -47,7 +46,6 @@ const USER_ACTIVITY_SYNC_THROTTLE_TIME = 15 * 60 * 1000;
 export class SyncTriggerService {
   private readonly _globalConfigService = inject(GlobalConfigService);
   private readonly _dataInitStateService = inject(DataInitStateService);
-  private readonly _idleService = inject(IdleService);
   private readonly _syncWrapperService = inject(SyncWrapperService);
   private readonly _hydrationState = inject(HydrationStateService);
 
@@ -85,50 +83,16 @@ export class SyncTriggerService {
 
   // IMMEDIATE TRIGGERS
   // ----------------------
-  private _mouseMoveAfterIdleOrUserInteractionFallbackTrigger$: Observable<
-    string | never
-  > = this._globalConfigService.idle$.pipe(
-    switchMap((idleCfg) =>
-      idleCfg.isEnableIdleTimeTracking
-        ? // idle should be a good indicator for remote data changes
-          this._idleService.isIdle$.pipe(
-            distinctUntilChanged(),
-            switchMap((isIdle) =>
-              isIdle
-                ? fromEvent(window, 'mousemove').pipe(
-                    // we throttle this to prevent lots of updates, but
-                    // but also cover the case when the user doesn't interact with the idle dialog
-                    throttleTime(60 * 1000),
-                    mapTo('I_MOUSE_MOVE_AFTER_IDLE_THROTTLED'),
-                  )
-                : EMPTY,
-            ),
-          )
-        : // FALLBACK we check if there was any kind of user interaction
-          // (otherwise sync might never be checked if there are no local data changes)
-          // NOTE: visibilitychange is handled separately by _visibilityHiddenTrigger$ —
-          // not throttled, so backgrounding always attempts a sync.
-          IS_TOUCH_PRIMARY
-          ? fromEvent(window, 'touchstart').pipe(
-              mapTo('I_TOUCH_ACTIVITY'),
-              throttleTime(USER_ACTIVITY_SYNC_THROTTLE_TIME),
-            )
-          : fromEvent(window, 'focus').pipe(
-              mapTo('I_FOCUS_THROTTLED'),
-              throttleTime(USER_ACTIVITY_SYNC_THROTTLE_TIME),
-            ),
-    ),
-  );
-
-  private _onIdleTrigger$: Observable<string | never> = this._idleService.isIdle$.pipe(
-    distinctUntilChanged(),
-    switchMap((isIdle) =>
-      isIdle
-        ? // NOTE: wait for a second for all possible data changes and disabling timers to take place
-          timer(1000).pipe(mapTo('I_ON_IDLE'))
-        : EMPTY,
-    ),
-  );
+  // Check remote changes on user activity, independently of legacy idle settings.
+  private _userActivityTrigger$: Observable<string> = IS_TOUCH_PRIMARY
+    ? fromEvent(window, 'touchstart').pipe(
+        mapTo('I_TOUCH_ACTIVITY'),
+        throttleTime(USER_ACTIVITY_SYNC_THROTTLE_TIME),
+      )
+    : fromEvent(window, 'focus').pipe(
+        mapTo('I_FOCUS_THROTTLED'),
+        throttleTime(USER_ACTIVITY_SYNC_THROTTLE_TIME),
+      );
 
   private _onElectronResumeTrigger$: Observable<string | never> = IS_ELECTRON
     ? ipcResume$.pipe(
@@ -257,10 +221,9 @@ export class SyncTriggerService {
         )
       : // EVERYTHING ELSE
         merge(
-          this._mouseMoveAfterIdleOrUserInteractionFallbackTrigger$,
+          this._userActivityTrigger$,
           this._beforeGoingToSleepTriggers$,
           this._isOnlineTrigger$,
-          this._onIdleTrigger$,
           this._onElectronResumeTrigger$,
           this._visibilityHiddenTrigger$,
           // Periodic interval timer: fires every syncInterval ms to detect external file
