@@ -9,6 +9,7 @@ import {
 describe('isExternalUrlSchemeAllowed', () => {
   describe('allowed schemes', () => {
     const allowed = [
+      'codex://threads/01a0810c-9692-7053-b206-426de3ef8c8e',
       'http://example.com',
       'https://example.com/path?q=1#frag',
       'HTTPS://EXAMPLE.COM', // scheme is case-insensitive
@@ -42,6 +43,7 @@ describe('isExternalUrlSchemeAllowed', () => {
 
     it('keeps the allowlist in sync with expectations', () => {
       expect(ALLOWED_EXTERNAL_URL_SCHEMES).toEqual([
+        'codex:',
         'http:',
         'https:',
         'mailto:',
