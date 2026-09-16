@@ -11,6 +11,7 @@ import {
   TakeABreakConfig,
   TaskWidgetConfig,
 } from '../src/app/features/config/global-config.model';
+import { TaskWidgetListData } from './shared-with-frontend/task-widget.model';
 import { KeyboardConfig } from './shared-with-frontend/keyboard-config.model';
 import { AppDataCompleteLegacy } from '../src/app/imex/sync/sync.model';
 import { Task } from '../src/app/features/tasks/task.model';
@@ -240,6 +241,7 @@ export interface ElectronAPI {
   sendSettingsUpdate(globalCfg: GlobalConfigState): void;
 
   updateTaskWidgetSettings(cfg: TaskWidgetConfig): void;
+  updateTaskWidgetList(data: TaskWidgetListData): void;
 
   updateTitleBarDarkMode(isDarkMode: boolean): void;
 

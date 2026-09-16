@@ -1,8 +1,13 @@
+import { validatePlans } from '../shared-with-frontend/task-planning';
+import { suggestPlans } from './ai-planner';
+import { isCodexThreadLink } from '../shared-with-frontend/codex-thread-link';
 import {
+  app,
   BrowserWindow,
   BrowserWindowConstructorOptions,
   ipcMain,
   screen,
+  shell,
 } from 'electron';
 import { join } from 'path';
 import { assertSecureWebPreferences } from '../web-preferences-guard';
@@ -12,6 +17,11 @@ import { info } from 'electron-log/main';
 import { IPC } from '../shared-with-frontend/ipc-events.const';
 import { loadSimpleStoreAll, saveSimpleStore } from '../simple-store';
 import { IS_MAC } from '../common.const';
+
+import { TaskWidgetListData } from '../shared-with-frontend/task-widget.model';
+
+let listData: TaskWidgetListData | undefined;
+let displayMode: 'timer' | 'today' | 'all' = 'timer';
 
 let taskWidgetWin: BrowserWindow | null = null;
 let isTaskWidgetEnabled = false;
@@ -38,6 +48,8 @@ let pendingShowAfterCreate = false;
 let pendingShowAfterCreateInactive = false;
 
 const TASK_WIDGET_BOUNDS_KEY = 'taskWidgetBounds';
+const getBoundsKey = (): string =>
+  displayMode === 'timer' ? TASK_WIDGET_BOUNDS_KEY : 'taskListWidgetBounds';
 const LEGACY_BOUNDS_KEY = 'overlayBounds';
 let boundsDebounceTimer: NodeJS.Timeout | null = null;
 
@@ -100,6 +112,9 @@ export const destroyTaskWidget = (): void => {
 
   // Remove IPC listeners
   ipcMain.removeAllListeners('task-widget-show-main-window');
+  ipcMain.removeAllListeners('task-widget-complete');
+  ipcMain.removeAllListeners('task-widget-open-codex');
+  ipcMain.removeAllListeners('task-widget-progress');
   listenersRegistered = false;
 
   if (taskWidgetWin && !taskWidgetWin.isDestroyed()) {
@@ -160,14 +175,21 @@ const createTaskWidgetWindowForGeneration = async (
 
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width: screenWidth } = primaryDisplay.workAreaSize;
-  const defaultBounds = { width: 300, height: 80, x: screenWidth - 320, y: 20 };
+  const isList = displayMode !== 'timer';
+  const defaultBounds = {
+    width: isList ? 360 : 300,
+    height: isList ? 360 : 80,
+    x: screenWidth - 380,
+    y: 20,
+  };
 
   // Restore persisted bounds or use defaults
   let bounds = defaultBounds;
   try {
     const store = await loadSimpleStoreAll();
     // Try new key first, fall back to legacy key for migration
-    const saved = (store[TASK_WIDGET_BOUNDS_KEY] || store[LEGACY_BOUNDS_KEY]) as
+    const saved = (store[getBoundsKey()] ||
+      (displayMode === 'timer' ? store[LEGACY_BOUNDS_KEY] : undefined)) as
       | { width: number; height: number; x: number; y: number }
       | undefined;
     if (
@@ -233,18 +255,18 @@ const createTaskWidgetWindowForGeneration = async (
     title: 'Super Productivity Task Widget',
     frame: false,
     transparent: !IS_MAC,
-    backgroundColor: IS_MAC ? '#00000000' : undefined,
+    backgroundColor: IS_MAC ? (isList ? '#ffffff' : '#00000000') : undefined,
     alwaysOnTop: true,
     skipTaskbar: true,
     resizable: true,
-    minWidth: 60,
-    minHeight: 24,
+    minWidth: isList ? 260 : 60,
+    minHeight: isList ? 140 : 24,
     maxWidth: 700,
-    maxHeight: 120,
+    maxHeight: isList ? 900 : 120,
     minimizable: false,
     maximizable: false,
     closable: true, // Ensure window is closable
-    hasShadow: IS_MAC, // Mac: solid window can keep native shadow
+    hasShadow: IS_MAC && !isList, // Keep the list edge free of the native dark outline.
     autoHideMenuBar: true,
     roundedCorners: IS_MAC, // Mac: rely on OS-native rounded corners
     webPreferences,
@@ -256,11 +278,15 @@ const createTaskWidgetWindowForGeneration = async (
   // by IPC; sends before did-finish-load are dropped. Uses 'on' (not 'once') so a DevTools
   // reload also restores the correct opacity. macOS re-calls setOpacity() idempotently.
   taskWidgetWin.webContents.on('did-finish-load', () => {
+    updateTaskWidgetContent();
     updateTaskWidgetOpacity(currentOpacity);
   });
 
   // Set visible on all workspaces immediately after creation
-  taskWidgetWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  taskWidgetWin.setVisibleOnAllWorkspaces(true, {
+    visibleOnFullScreen: true,
+    skipTransformProcessType: true,
+  });
 
   taskWidgetWin.on('closed', () => {
     taskWidgetWin = null;
@@ -273,7 +299,10 @@ const createTaskWidgetWindowForGeneration = async (
   taskWidgetWin.on('ready-to-show', () => {
     if (!taskWidgetWin || taskWidgetWin.isDestroyed()) return;
     // Ensure window stays on all workspaces
-    taskWidgetWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    taskWidgetWin.setVisibleOnAllWorkspaces(true, {
+      visibleOnFullScreen: true,
+      skipTransformProcessType: true,
+    });
 
     // Request current task state from main window
     const mainWindow = BrowserWindow.getAllWindows().find((win) => win !== taskWidgetWin);
@@ -287,7 +316,7 @@ const createTaskWidgetWindowForGeneration = async (
     if (boundsDebounceTimer) clearTimeout(boundsDebounceTimer);
     boundsDebounceTimer = setTimeout(() => {
       if (taskWidgetWin && !taskWidgetWin.isDestroyed()) {
-        saveSimpleStore(TASK_WIDGET_BOUNDS_KEY, taskWidgetWin.getBounds());
+        saveSimpleStore(getBoundsKey(), taskWidgetWin.getBounds());
       }
     }, 300);
   };
@@ -409,6 +438,274 @@ const initListeners = (): void => {
   }
   listenersRegistered = true;
 
+  ipcMain.removeHandler('task-widget-apply-plan');
+  const submissions = new Map<string, Promise<boolean>>();
+  const undoReceipts = new Map<
+    string,
+    {
+      id: string;
+      before?: import('../shared-with-frontend/task-widget.model').TaskWidgetListItem;
+    }
+  >();
+  ipcMain.removeHandler('task-widget-undo-plan');
+  ipcMain.handle('task-widget-undo-plan', async (event, raw: unknown) => {
+    if (
+      !taskWidgetWin ||
+      event.sender !== taskWidgetWin.webContents ||
+      event.senderFrame !== taskWidgetWin.webContents.mainFrame ||
+      !listData
+    )
+      return false;
+    let signature: string;
+    try {
+      signature = JSON.stringify(
+        validatePlans(
+          [raw],
+          listData.all.map((t) => t.id),
+          (listData.projects || []).map((p) => p.id),
+        )[0],
+      );
+    } catch {
+      return false;
+    }
+    const receipt = undoReceipts.get(signature);
+    if (!receipt) return false;
+    BrowserWindow.getAllWindows()
+      .find((w) => w !== taskWidgetWin)
+      ?.webContents.send(IPC.TASK_WIDGET_ACTION, {
+        id: null,
+        action: 'undo-plan',
+        value: signature,
+      });
+    for (let attempt = 0; attempt < 80; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const current = listData?.all.find((t) => t.id === receipt.id);
+      if (
+        receipt.before
+          ? current &&
+            !current.dueDay &&
+            !current.dueWithTime &&
+            current.estimateMs === receipt.before.estimateMs
+          : !current
+      ) {
+        undoReceipts.delete(signature);
+        submissions.delete(signature);
+        return true;
+      }
+    }
+    return false;
+  });
+  ipcMain.handle('task-widget-apply-plan', async (event, raw: unknown) => {
+    if (
+      !taskWidgetWin ||
+      event.sender !== taskWidgetWin.webContents ||
+      event.senderFrame !== taskWidgetWin.webContents.mainFrame ||
+      !listData
+    )
+      return false;
+    try {
+      const [plan] = validatePlans(
+        [raw],
+        listData.all.map((t) => t.id),
+        (listData.projects || []).map((p) => p.id),
+      );
+      const signature = JSON.stringify(plan);
+      if (submissions.has(signature)) return submissions.get(signature);
+      const before = listData.all.find((t) => t.id === plan.taskId);
+      const ids = new Set(listData.all.map((t) => t.id));
+      const result = (async (): Promise<boolean> => {
+        BrowserWindow.getAllWindows()
+          .find((w) => w !== taskWidgetWin)
+          ?.webContents.send(IPC.TASK_WIDGET_ACTION, {
+            id: null,
+            action: 'apply-plan',
+            value: signature,
+          });
+        for (let attempt = 0; attempt < 80; attempt++) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          const saved = listData?.all.find(
+            (t) =>
+              (plan.taskId
+                ? t.id === plan.taskId
+                : !ids.has(t.id) && t.title === plan.title) &&
+              (plan.time
+                ? t.dueWithTime === new Date(`${plan.date}T${plan.time}:00`).getTime()
+                : plan.date
+                  ? t.dueDay === plan.date
+                  : true),
+          );
+          if (saved) {
+            undoReceipts.set(signature, { id: saved.id, before });
+            return true;
+          }
+        }
+        return false;
+      })();
+      submissions.set(signature, result);
+      return result;
+    } catch {
+      return false;
+    }
+  });
+
+  ipcMain.removeHandler('task-widget-suggest');
+  let planningBusy = false;
+  ipcMain.handle('task-widget-suggest', async (event, request: unknown) => {
+    if (
+      !taskWidgetWin ||
+      event.sender !== taskWidgetWin.webContents ||
+      event.senderFrame !== taskWidgetWin.webContents.mainFrame ||
+      !listData ||
+      planningBusy ||
+      !request ||
+      typeof request !== 'object'
+    )
+      return { plans: [], error: 'unavailable' };
+    const { text, daily } = request as Record<string, unknown>;
+    if (typeof text !== 'string' || text.length > 1000 || typeof daily !== 'boolean')
+      return { plans: [], error: 'unavailable' };
+    planningBusy = true;
+    try {
+      return await suggestPlans(app.getPath('userData'), text, daily, listData);
+    } finally {
+      planningBusy = false;
+    }
+  });
+
+  ipcMain.on('task-widget-action', (event, payload: unknown) => {
+    if (
+      !taskWidgetWin ||
+      event.sender !== taskWidgetWin.webContents ||
+      event.senderFrame !== taskWidgetWin.webContents.mainFrame ||
+      displayMode === 'timer' ||
+      !payload ||
+      typeof payload !== 'object'
+    )
+      return;
+    const { id, action, value } = payload as {
+      id?: unknown;
+      action?: unknown;
+      value?: unknown;
+    };
+    if (
+      typeof action !== 'string' ||
+      ![
+        'setup',
+        'navigate',
+        'plan',
+        'open',
+        'status',
+        'important',
+        'urgent',
+        'project',
+        'today',
+        'reorder',
+      ].includes(action) ||
+      (value !== undefined && (typeof value !== 'string' || value.length > 10000))
+    )
+      return;
+    if (
+      !(
+        (action === 'setup' ||
+          (action === 'navigate' &&
+            ['today', 'INBOX_PROJECT', 'planner', 'schedule'].includes(String(value)))) &&
+        id === null
+      ) &&
+      (typeof id !== 'string' || !listData?.all.some((t) => t.id === id))
+    )
+      return;
+    const main = BrowserWindow.getAllWindows().find((w) => w !== taskWidgetWin);
+    main?.webContents.send(IPC.TASK_WIDGET_ACTION, { id, action, value });
+    if (['open', 'navigate', 'plan'].includes(action)) {
+      main?.restore();
+      main?.show();
+      main?.focus();
+    }
+  });
+
+  ipcMain.on('task-widget-write', (event, payload: unknown) => {
+    if (
+      !taskWidgetWin ||
+      event.sender !== taskWidgetWin.webContents ||
+      event.senderFrame !== taskWidgetWin.webContents.mainFrame ||
+      displayMode === 'timer' ||
+      !payload ||
+      typeof payload !== 'object'
+    )
+      return;
+    const { id, title, context } = payload as {
+      id?: unknown;
+      title?: unknown;
+      context?: { projectId?: unknown; today?: unknown };
+    };
+    if (context !== undefined && (!context || typeof context !== 'object')) return;
+    const projectId = context?.projectId;
+    if (
+      projectId !== undefined &&
+      (typeof projectId !== 'string' ||
+        !listData?.projects?.some((p) => p.id === projectId))
+    )
+      return;
+    if (typeof title !== 'string' || !title.trim() || title.length > 1000) return;
+    if (
+      id !== null &&
+      (typeof id !== 'string' || !listData?.all.some((task) => task.id === id))
+    )
+      return;
+    BrowserWindow.getAllWindows()
+      .find((win) => win !== taskWidgetWin)
+      ?.webContents.send(IPC.TASK_WIDGET_WRITE, {
+        id,
+        title: title.trim(),
+        today: context?.today === true,
+        ...(typeof projectId === 'string' ? { projectId } : {}),
+      });
+  });
+
+  ipcMain.on('task-widget-complete', (event, id: unknown) => {
+    if (
+      !taskWidgetWin ||
+      event.sender !== taskWidgetWin.webContents ||
+      event.senderFrame !== taskWidgetWin.webContents.mainFrame ||
+      typeof id !== 'string' ||
+      displayMode === 'timer'
+    )
+      return;
+    if (!listData?.all.some((task) => task.id === id)) return;
+    const mainWindow = BrowserWindow.getAllWindows().find((win) => win !== taskWidgetWin);
+    mainWindow?.webContents.send(IPC.TASK_WIDGET_COMPLETE, id);
+  });
+
+  ipcMain.on('task-widget-progress', (event, id: unknown) => {
+    if (
+      !taskWidgetWin ||
+      event.sender !== taskWidgetWin.webContents ||
+      event.senderFrame !== taskWidgetWin.webContents.mainFrame ||
+      typeof id !== 'string' ||
+      displayMode === 'timer' ||
+      !listData?.all.some((task) => task.id === id)
+    )
+      return;
+    BrowserWindow.getAllWindows()
+      .find((win) => win !== taskWidgetWin)
+      ?.webContents.send(IPC.TASK_WIDGET_PROGRESS, id);
+  });
+
+  ipcMain.on('task-widget-open-codex', (event, id: unknown) => {
+    if (
+      !taskWidgetWin ||
+      event.sender !== taskWidgetWin.webContents ||
+      event.senderFrame !== taskWidgetWin.webContents.mainFrame ||
+      typeof id !== 'string' ||
+      displayMode === 'timer'
+    )
+      return;
+    const url = listData?.all.find((task) => task.id === id)?.codexThreadUrl;
+    if (isCodexThreadLink(url)) {
+      void shell.openExternal(url).catch(() => info('Could not open Codex thread link'));
+    }
+  });
+
   // Listen for show main window request
   ipcMain.on('task-widget-show-main-window', () => {
     const mainWindow = BrowserWindow.getAllWindows().find((win) => win !== taskWidgetWin);
@@ -488,6 +785,15 @@ const updateTaskWidgetContent = (): void => {
     title,
     time: timeStr,
     mode,
+    list:
+      displayMode !== 'timer' && listData
+        ? {
+            tasks: listData.all,
+            labels: listData.labels,
+            scope: displayMode,
+            projects: listData.projects,
+          }
+        : undefined,
   });
 };
 
@@ -517,10 +823,19 @@ export const updateTaskWidgetOpacity = (opacity: number): void => {
 // Apply the per-instance task widget settings sent by the renderer.
 const applyTaskWidgetSettings = (cfg: TaskWidgetConfig | undefined): void => {
   const isEnabled = !!cfg?.isEnabled;
+  const nextMode =
+    cfg?.displayMode === 'today' || cfg?.displayMode === 'all'
+      ? cfg.displayMode
+      : 'timer';
+  if (nextMode !== displayMode) {
+    destroyTaskWidget();
+    displayMode = nextMode;
+  }
   updateTaskWidgetEnabled(isEnabled);
   if (isEnabled) {
     updateTaskWidgetOpacity(cfg?.opacity ?? 95);
     updateTaskWidgetAlwaysShow(!!cfg?.isAlwaysShow);
+    if (cfg?.isAlwaysShow) showTaskWidget({ inactive: true });
   } else {
     updateTaskWidgetAlwaysShow(false);
   }
@@ -530,6 +845,18 @@ let taskWidgetSettingsListenerRegistered = false;
 export const initTaskWidgetSettingsListener = (): void => {
   if (taskWidgetSettingsListenerRegistered) return;
   taskWidgetSettingsListenerRegistered = true;
+  ipcMain.on(IPC.UPDATE_TASK_WIDGET_LIST, (event, data: TaskWidgetListData) => {
+    // Only the main app can publish the list, never the widget or child frames.
+    const mainWindow = BrowserWindow.getAllWindows().find((win) => win !== taskWidgetWin);
+    if (
+      !mainWindow ||
+      event.sender !== mainWindow.webContents ||
+      event.senderFrame !== mainWindow.webContents.mainFrame
+    )
+      return;
+    listData = data;
+    updateTaskWidgetContent();
+  });
   ipcMain.on(IPC.UPDATE_TASK_WIDGET_SETTINGS, (_ev, cfg: TaskWidgetConfig) => {
     applyTaskWidgetSettings(cfg);
   });

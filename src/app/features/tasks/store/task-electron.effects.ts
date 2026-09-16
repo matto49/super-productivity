@@ -1,9 +1,25 @@
+import { ProjectService } from '../../project/project.service';
+import { TaskWidgetWorkflowService } from '../task-widget-workflow.service';
+import { IMPORTANT_TAG, URGENT_TAG } from '../../tag/tag.const';
+import { REVIEW_TAG_ID } from '../task-activity';
+import { DateService } from '../../../core/date/date.service';
+import { INBOX_PROJECT } from '../../project/project.const';
+import {
+  getCodexThreadLink,
+  getCodexAssociation,
+} from '../../../../../electron/shared-with-frontend/codex-thread-link';
 import { inject, Injectable } from '@angular/core';
 import { createEffect, ofType } from '@ngrx/effects';
 import { setCurrentTask, unsetCurrentTask } from './task.actions';
+import { combineLatest } from 'rxjs';
+import { TranslateService } from '@ngx-translate/core';
+import { T } from '../../../t.const';
+import { selectAllTasks } from './task.selectors';
 import { select, Store } from '@ngrx/store';
 import {
   filter,
+  map,
+  distinctUntilChanged,
   startWith,
   take,
   tap,
@@ -29,12 +45,18 @@ import {
 import { IPC } from '../../../../../electron/shared-with-frontend/ipc-events.const';
 import { TaskService } from '../task.service';
 import { TaskSharedActions } from '../../../root-store/meta/task-shared.actions';
+import { IN_PROGRESS_TAG_ID, readTaskActivity } from '../task-activity';
+import { TaskWidgetListItem } from '../../../../../electron/shared-with-frontend/task-widget.model';
 import { LOCAL_ACTIONS } from '../../../util/local-actions.token';
 
 // TODO send message to electron when current task changes here
 
 @Injectable()
 export class TaskElectronEffects {
+  private _dateService = inject(DateService);
+  private _projects = inject(ProjectService);
+  private _workflow = inject(TaskWidgetWorkflowService);
+  private _translate = inject(TranslateService);
   private _actions$ = inject(LOCAL_ACTIONS);
   private _store$ = inject<Store<any>>(Store);
   private _configService = inject(GlobalConfigService);
@@ -46,6 +68,18 @@ export class TaskElectronEffects {
   // -----------------------------------------------------------------------------------
 
   constructor() {
+    window.ea.on(IPC.TASK_WIDGET_ACTION, (payload) => {
+      if (!payload || typeof payload !== 'object') return;
+      const { id, action, value } = payload as {
+        id: string | null;
+        action: string;
+        value?: string;
+      };
+      void this._workflow.act(id, action, value).catch(() => {
+        // Keep the application authoritative when a task disappears during an action.
+      });
+    });
+
     /**
      * SYNC-SAFE: This IPC listener is safe during sync/hydration because:
      * - Read-only operation - only reads current state and sends to Electron
@@ -76,10 +110,200 @@ export class TaskElectronEffects {
         });
     });
 
+    window.ea.on(IPC.TASK_WIDGET_WRITE, (payload) => {
+      if (!payload || typeof payload !== 'object') return;
+      const { id, title, today, projectId } = payload as {
+        id?: unknown;
+        title?: unknown;
+        today?: unknown;
+        projectId?: unknown;
+      };
+      if (typeof title !== 'string' || !title.trim() || title.length > 1000) return;
+      if (id === null) {
+        this._taskService.add(
+          title.trim(),
+          today !== true,
+          {
+            projectId:
+              typeof projectId === 'string' &&
+              this._projects.list().some((p) => p.id === projectId)
+                ? projectId
+                : this._projects.list().find((p) => p.title === '工作')?.id ||
+                  INBOX_PROJECT.id,
+            tagIds: [],
+            dueDay: today === true ? this._dateService.todayStr() : undefined,
+          },
+          false,
+          true,
+        );
+      } else if (typeof id === 'string') {
+        this._store$
+          .select(selectTaskEntities)
+          .pipe(take(1))
+          .subscribe((entities) => {
+            if (entities[id] && !entities[id].isDone)
+              this._taskService.update(id, { title: title.trim() });
+          });
+      }
+    });
+
+    window.ea.on(IPC.TASK_WIDGET_COMPLETE, (id) => {
+      if (typeof id !== 'string') return;
+      this._store$
+        .select(selectTaskEntities)
+        .pipe(take(1))
+        .subscribe((entities) => {
+          if (entities[id] && !entities[id].isDone) this._taskService.setDone(id);
+        });
+    });
+
+    window.ea.on(IPC.TASK_WIDGET_PROGRESS, (id) => {
+      if (typeof id !== 'string') return;
+      this._store$
+        .select(selectTaskEntities)
+        .pipe(take(1))
+        .subscribe((entities) => {
+          const task = entities[id];
+          if (!task || task.isDone || task.parentId) return;
+          void this._workflow.act(
+            id,
+            'status',
+            task.tagIds.includes(IN_PROGRESS_TAG_ID) ? 'pending' : 'progress',
+          );
+        });
+    });
+
     window.ea.onSwitchTask((taskId) => {
       this._taskService.setCurrentId(taskId);
     });
   }
+
+  // Read-only projection: remote changes refresh the widget without dispatching writes.
+  syncTaskWidgetList$ = createEffect(
+    () =>
+      combineLatest([
+        this._store$.select(selectAllTasks),
+        this._store$.select(selectTodayTaskIds),
+        this._projects.list$,
+        this._translate.onLangChange.pipe(startWith(null)),
+      ]).pipe(
+        map(([tasks, todayIds, projects]) => {
+          const openTasks = tasks.filter((task) => !task.isDone);
+          const item = (task: (typeof tasks)[number]): TaskWidgetListItem => {
+            let aiMs = 0;
+            try {
+              for (const day of Object.values(readTaskActivity(task.notes))) {
+                aiMs += day.aiMs;
+              }
+            } catch {
+              /* Malformed notes never prevent displaying a task. */
+            }
+            const association = getCodexAssociation(task.notes);
+            const translate = (key: string): string =>
+              this._translate.instant(`GCF.TASK_WIDGET.${key}`);
+            const stale =
+              association && Date.now() - Date.parse(association.checkedAt) > 15 * 60000;
+            const status = association
+              ? stale
+                ? 'STALE'
+                : association.status.toUpperCase()
+              : getCodexThreadLink(task.notes)
+                ? 'UNVERIFIED'
+                : 'UNLINKED';
+            return {
+              associationLabel: translate(`ASSOCIATION_${status}`),
+              associationDetail: association
+                ? `${translate('COLLECTION_SINCE')}: ${new Date(association.since).toLocaleString()} · ${translate('COLLECTION_CHECKED')}: ${new Date(association.checkedAt).toLocaleString()} · ${association.threadCount} ${translate('ASSOCIATED_THREADS')} · ${translate(association.humanStatus === 'collected' ? 'HUMAN_COLLECTED' : 'HUMAN_PRESERVED')}`
+                : translate('ASSOCIATION_UNVERIFIED'),
+              humanCoverageIncomplete:
+                !association || association.humanStatus !== 'collected' || !!stale,
+              aiCoverageIncomplete:
+                !association || association.status !== 'collected' || !!stale,
+              dueDay: task.dueDay || undefined,
+              dueWithTime: task.dueWithTime || undefined,
+              estimateMs: task.timeEstimate,
+              scheduleLabel: task.dueWithTime
+                ? new Date(task.dueWithTime).toLocaleString()
+                : task.dueDay || '',
+              id: task.id,
+              title: task.title,
+              codexThreadUrl: getCodexThreadLink(task.notes),
+              inProgress: task.tagIds.includes(IN_PROGRESS_TAG_ID),
+              humanMs: task.timeSpent,
+              aiMs,
+              review: task.tagIds.includes(REVIEW_TAG_ID),
+              today: todayIds.includes(task.id),
+              todayRank: todayIds.indexOf(task.id),
+              important: task.tagIds.includes(IMPORTANT_TAG.id),
+              urgent: task.tagIds.includes(URGENT_TAG.id),
+              projectId: task.projectId,
+              projectTitle: projects.find((p) => p.id === task.projectId)?.title,
+            };
+          };
+          const entities = new Map(openTasks.map((task) => [task.id, task]));
+          return {
+            projects: projects
+              .filter((p) => !p.isHiddenFromMenu)
+              .map(({ id, title }) => ({ id, title })),
+            today: todayIds.flatMap((id) => {
+              const task = entities.get(id);
+              return task ? [item(task)] : [];
+            }),
+            all: projects.flatMap((project) =>
+              [...project.taskIds, ...project.backlogTaskIds].flatMap((id) => {
+                const task = entities.get(id);
+                return task && !task.parentId ? [item(task)] : [];
+              }),
+            ),
+            labels: {
+              aiReady: this._translate.instant('GCF.TASK_WIDGET.AI_READY'),
+              aiAdopt: this._translate.instant('GCF.TASK_WIDGET.AI_ADOPT'),
+              aiUndo: this._translate.instant('GCF.TASK_WIDGET.AI_UNDO'),
+              aiUndone: this._translate.instant('GCF.TASK_WIDGET.AI_UNDONE'),
+              aiChanged: this._translate.instant('GCF.TASK_WIDGET.AI_CHANGED'),
+              aiAdopted: this._translate.instant('GCF.TASK_WIDGET.AI_ADOPTED'),
+              aiCapture: this._translate.instant('GCF.TASK_WIDGET.AI_CAPTURE'),
+              aiToday: this._translate.instant('GCF.TASK_WIDGET.AI_TODAY'),
+              aiThinking: this._translate.instant('GCF.TASK_WIDGET.AI_THINKING'),
+              aiAccept: this._translate.instant('GCF.TASK_WIDGET.AI_ACCEPT'),
+              aiSaveOnly: this._translate.instant('GCF.TASK_WIDGET.AI_SAVE_ONLY'),
+              aiError: this._translate.instant('GCF.TASK_WIDGET.AI_ERROR'),
+              aiBudget: this._translate.instant('GCF.TASK_WIDGET.AI_BUDGET'),
+              aiMinutes: this._translate.instant('GCF.TASK_WIDGET.AI_MINUTES'),
+              aiEmpty: this._translate.instant('GCF.TASK_WIDGET.AI_EMPTY'),
+              aiSuggestion: this._translate.instant('GCF.TASK_WIDGET.AI_SUGGESTION'),
+              inbox: this._translate.instant('GCF.TASK_WIDGET.INBOX'),
+              planner: this._translate.instant('GCF.TASK_WIDGET.PLANNER'),
+              schedule: this._translate.instant('GCF.TASK_WIDGET.SCHEDULE'),
+              planTask: this._translate.instant('GCF.TASK_WIDGET.PLAN_TASK'),
+              addToday: this._translate.instant('GCF.TASK_WIDGET.ADD_TODAY'),
+              removeToday: this._translate.instant('GCF.TASK_WIDGET.REMOVE_TODAY'),
+              review: this._translate.instant(T.GCF.TASK_WIDGET.REVIEW),
+              focus: this._translate.instant(T.GCF.TASK_WIDGET.FOCUS),
+              important: this._translate.instant(T.GCF.TASK_WIDGET.IMPORTANT),
+              urgent: this._translate.instant(T.GCF.TASK_WIDGET.URGENT),
+              project: this._translate.instant(T.GCF.TASK_WIDGET.PROJECT),
+              detail: this._translate.instant(T.GCF.TASK_WIDGET.DETAIL),
+              add: this._translate.instant(T.GCF.TASK_WIDGET.ADD_TASK),
+              edit: this._translate.instant(T.GCF.TASK_WIDGET.EDIT_TITLE),
+              openCodex: this._translate.instant(T.GCF.TASK_WIDGET.OPEN_CODEX),
+              progress: this._translate.instant(T.GCF.TASK_WIDGET.IN_PROGRESS),
+              pending: this._translate.instant(T.GCF.TASK_WIDGET.PENDING),
+              human: this._translate.instant(T.GCF.TASK_WIDGET.HUMAN_TIME),
+              ai: this._translate.instant(T.GCF.TASK_WIDGET.AI_TIME),
+              today: this._translate.instant(T.GCF.TASK_WIDGET.MODE_TODAY),
+              all: this._translate.instant(T.GCF.TASK_WIDGET.MODE_ALL),
+              empty: this._translate.instant(T.GCF.TASK_WIDGET.EMPTY_LIST),
+              complete: this._translate.instant(T.GCF.TASK_WIDGET.COMPLETE_TASK),
+              open: this._translate.instant(T.GCF.TASK_WIDGET.OPEN_APP),
+            },
+          };
+        }),
+        distinctUntilChanged((a, b) => JSON.stringify(a) === JSON.stringify(b)),
+        tap((data) => window.ea.updateTaskWidgetList(data)),
+      ),
+    { dispatch: false },
+  );
 
   syncTodayTasksToElectron$ = createEffect(
     () =>

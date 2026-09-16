@@ -1,0 +1,83 @@
+export interface TaskWidgetListItem {
+  id: string;
+  title: string;
+  codexThreadUrl?: string;
+  inProgress?: boolean;
+  review?: boolean;
+  today?: boolean;
+  todayRank?: number;
+  important?: boolean;
+  urgent?: boolean;
+  projectId?: string;
+  projectTitle?: string;
+  dueDay?: string;
+  dueWithTime?: number;
+  estimateMs?: number;
+  scheduleLabel?: string;
+  humanMs?: number;
+  aiMs?: number;
+  associationLabel?: string;
+  associationDetail?: string;
+  aiCoverageIncomplete?: boolean;
+  humanCoverageIncomplete?: boolean;
+}
+
+export interface TaskWidgetListData {
+  today: TaskWidgetListItem[];
+  all: TaskWidgetListItem[];
+  projects?: { id: string; title: string }[];
+  labels: {
+    today: string;
+    all: string;
+    empty: string;
+    complete: string;
+    open: string;
+    add?: string;
+    edit?: string;
+    openCodex?: string;
+    progress?: string;
+    pending?: string;
+    human?: string;
+    ai?: string;
+    review?: string;
+    focus?: string;
+    important?: string;
+    urgent?: string;
+    project?: string;
+    detail?: string;
+    inbox?: string;
+    planner?: string;
+    schedule?: string;
+    planTask?: string;
+    addToday?: string;
+    removeToday?: string;
+    aiCapture?: string;
+    aiToday?: string;
+    aiThinking?: string;
+    aiAccept?: string;
+    aiSaveOnly?: string;
+    aiError?: string;
+    aiBudget?: string;
+    aiMinutes?: string;
+    aiReady?: string;
+    aiAdopt?: string;
+    aiUndo?: string;
+    aiUndone?: string;
+    aiChanged?: string;
+    aiAdopted?: string;
+    aiEmpty?: string;
+    aiSuggestion?: string;
+  };
+}
+
+export interface TaskWidgetContentData {
+  title: string;
+  time: string;
+  mode: 'pomodoro' | 'focus' | 'task' | 'idle';
+  list?: {
+    tasks: TaskWidgetListItem[];
+    labels: TaskWidgetListData['labels'];
+    scope: 'today' | 'all';
+    projects?: { id: string; title: string }[];
+  };
+}

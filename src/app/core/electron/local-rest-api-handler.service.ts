@@ -2,6 +2,11 @@ import { Injectable, inject } from '@angular/core';
 import { Store } from '@ngrx/store';
 import { firstValueFrom } from 'rxjs';
 import typia from 'typia';
+import {
+  mergeTaskActivity,
+  IN_PROGRESS_TAG_ID,
+  REVIEW_TAG_ID,
+} from '../../features/tasks/task-activity';
 import { TaskService } from '../../features/tasks/task.service';
 import { Task, TaskWithSubTasks } from '../../features/tasks/task.model';
 import { TaskArchiveService } from '../../features/archive/task-archive.service';
@@ -612,6 +617,68 @@ export class LocalRestApiHandlerService {
 
         this._taskService.remove(task);
         return createSuccessResponse(requestId, 200, { deleted: true, id: taskId });
+      }
+    }
+
+    if (segments.length === 3 && segments[2] === 'activity' && method === 'PUT') {
+      if (
+        !isRecord(body) ||
+        typeof body.source !== 'string' ||
+        typeof body.date !== 'string' ||
+        typeof body.humanMs !== 'number' ||
+        typeof body.aiMs !== 'number' ||
+        (body.inProgress !== undefined && typeof body.inProgress !== 'boolean')
+      ) {
+        return createErrorResponse(
+          requestId,
+          400,
+          'INVALID_INPUT',
+          'Invalid activity totals',
+        );
+      }
+      const task = await this._getTaskById(taskId);
+      if (!task)
+        return createErrorResponse(requestId, 404, 'TASK_NOT_FOUND', 'Task not found');
+      // Explicit external intent; one persistent update contains both the receipt and work log.
+      // Only leaf tasks accept imports: parents derive their time from children.
+      if (task.subTaskIds.length)
+        return createErrorResponse(
+          requestId,
+          400,
+          'INVALID_INPUT',
+          'Import activity into a leaf task',
+        );
+      try {
+        const changes = mergeTaskActivity(
+          task.notes || '',
+          task.timeSpentOnDay,
+          body.source,
+          body.date,
+          { humanMs: body.humanMs, aiMs: body.aiMs },
+        );
+        const hasNewActivity = changes.notes !== task.notes;
+        if (hasNewActivity) this._taskService.update(taskId, changes);
+        if (
+          hasNewActivity &&
+          body.inProgress &&
+          !task.tagIds.includes(REVIEW_TAG_ID) &&
+          !task.isDone &&
+          !task.parentId &&
+          !task.tagIds.includes(IN_PROGRESS_TAG_ID)
+        ) {
+          if (!this._tagService.tags().some((tag) => tag.id === IN_PROGRESS_TAG_ID)) {
+            this._tagService.addTag({ id: IN_PROGRESS_TAG_ID, title: 'In progress' });
+          }
+          this._taskService.updateTags(task, [...task.tagIds, IN_PROGRESS_TAG_ID]);
+        }
+        return createSuccessResponse(requestId, 200, await this._getTaskById(taskId));
+      } catch {
+        return createErrorResponse(
+          requestId,
+          400,
+          'INVALID_INPUT',
+          'Invalid activity ledger or date',
+        );
       }
     }
 
