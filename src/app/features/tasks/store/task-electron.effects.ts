@@ -9,6 +9,7 @@ import {
   getCodexAssociation,
 } from '../../../../../electron/shared-with-frontend/codex-thread-link';
 import { inject, Injectable } from '@angular/core';
+import { Router } from '@angular/router';
 import { createEffect, ofType } from '@ngrx/effects';
 import { setCurrentTask, unsetCurrentTask } from './task.actions';
 import { combineLatest } from 'rxjs';
@@ -45,7 +46,7 @@ import {
 import { IPC } from '../../../../../electron/shared-with-frontend/ipc-events.const';
 import { TaskService } from '../task.service';
 import { TaskSharedActions } from '../../../root-store/meta/task-shared.actions';
-import { IN_PROGRESS_TAG_ID, readTaskActivity } from '../task-activity';
+import { IN_PROGRESS_TAG_ID, sumTaskActivity } from '../task-activity';
 import { TaskWidgetListItem } from '../../../../../electron/shared-with-frontend/task-widget.model';
 import { LOCAL_ACTIONS } from '../../../util/local-actions.token';
 
@@ -55,6 +56,7 @@ import { LOCAL_ACTIONS } from '../../../util/local-actions.token';
 export class TaskElectronEffects {
   private _dateService = inject(DateService);
   private _projects = inject(ProjectService);
+  private _router = inject(Router);
   private _workflow = inject(TaskWidgetWorkflowService);
   private _translate = inject(TranslateService);
   private _actions$ = inject(LOCAL_ACTIONS);
@@ -185,16 +187,27 @@ export class TaskElectronEffects {
         this._store$.select(selectAllTasks),
         this._store$.select(selectTodayTaskIds),
         this._projects.list$,
+        this._router.events.pipe(
+          map(() => this._router.url),
+          startWith(this._router.url),
+          distinctUntilChanged(),
+        ),
         this._translate.onLangChange.pipe(startWith(null)),
       ]).pipe(
-        map(([tasks, todayIds, projects]) => {
+        map(([tasks, todayIds, projects, route]) => {
+          const segments = route.split('?')[0].split('/').filter(Boolean);
+          const activeView =
+            segments[0] === 'tag' && segments[1] === 'TODAY'
+              ? 'today'
+              : segments[0] === 'project' &&
+                  projects.some((project) => project.id === segments[1])
+                ? segments[1]
+                : undefined;
           const openTasks = tasks.filter((task) => !task.isDone);
           const item = (task: (typeof tasks)[number]): TaskWidgetListItem => {
-            let aiMs = 0;
+            let activity = { humanMs: 0, aiMs: 0 };
             try {
-              for (const day of Object.values(readTaskActivity(task.notes))) {
-                aiMs += day.aiMs;
-              }
+              activity = sumTaskActivity(task.notes);
             } catch {
               /* Malformed notes never prevent displaying a task. */
             }
@@ -229,8 +242,9 @@ export class TaskElectronEffects {
               title: task.title,
               codexThreadUrl: getCodexThreadLink(task.notes),
               inProgress: task.tagIds.includes(IN_PROGRESS_TAG_ID),
-              humanMs: task.timeSpent,
-              aiMs,
+              humanMs: activity.humanMs,
+              aiMs: activity.aiMs,
+              trackedMs: task.timeSpent,
               review: task.tagIds.includes(REVIEW_TAG_ID),
               today: todayIds.includes(task.id),
               todayRank: todayIds.indexOf(task.id),
@@ -242,6 +256,7 @@ export class TaskElectronEffects {
           };
           const entities = new Map(openTasks.map((task) => [task.id, task]));
           return {
+            activeView,
             projects: projects
               .filter((p) => !p.isHiddenFromMenu)
               .map(({ id, title }) => ({ id, title })),
@@ -291,6 +306,7 @@ export class TaskElectronEffects {
               pending: this._translate.instant(T.GCF.TASK_WIDGET.PENDING),
               human: this._translate.instant(T.GCF.TASK_WIDGET.HUMAN_TIME),
               ai: this._translate.instant(T.GCF.TASK_WIDGET.AI_TIME),
+              tracked: this._translate.instant(T.GCF.TASK_WIDGET.TRACKED_TIME),
               today: this._translate.instant(T.GCF.TASK_WIDGET.MODE_TODAY),
               all: this._translate.instant(T.GCF.TASK_WIDGET.MODE_ALL),
               empty: this._translate.instant(T.GCF.TASK_WIDGET.EMPTY_LIST),

@@ -113,9 +113,15 @@ export class TaskWidgetWorkflowService {
       return;
     }
     if (action === 'navigate' && id === null) {
+      if (
+        value &&
+        (await firstValueFrom(this._projects.list$)).some((p) => p.id === value)
+      ) {
+        await this._router.navigate(['project', value, 'tasks']);
+        return;
+      }
       const routes: Record<string, string[]> = {
         today: ['tag', 'TODAY', 'tasks'],
-        INBOX_PROJECT: ['project', 'INBOX_PROJECT', 'tasks'],
         planner: ['planner'],
         schedule: ['schedule'],
       };

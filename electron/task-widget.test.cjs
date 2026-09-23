@@ -94,6 +94,8 @@ class FakeBrowserWindow {
     this._visible = true;
     this.showCount += 1;
   }
+  restore() {}
+  focus() {}
   showInactive() {
     this._visible = true;
     this.showInactiveCount += 1;
@@ -357,6 +359,8 @@ test('the opacity in effect at load time reaches the widget renderer once it fin
 const widgetList = {
   today: [{ id: 'today-1', title: '<img src=x onerror=alert(1)>' }],
   all: [{ id: 'all-1', title: 'Parallel agent work' }],
+  projects: [{ id: 'work', title: 'Work' }],
+  activeView: 'work',
   labels: {
     today: 'Today',
     all: 'All',
@@ -385,6 +389,7 @@ test('list mode renders without an active timer and restores content after reloa
     .filter((x) => x.channel === 'update-content')
     .at(-1).payload;
   assert.deepEqual(content.list.tasks, widgetList.all);
+  assert.equal(content.list.activeView, 'work');
   assert.equal(win.workspaceOptions.skipTransformProcessType, true);
   win.emit('ready-to-show');
   assert.equal(win.workspaceOptions.skipTransformProcessType, true);
@@ -618,12 +623,18 @@ test('workflow commands reject other windows, subframes, unknown tasks and actio
     0,
   );
   act(event, { id: 'all-1', action: 'status', value: 'review' });
+  act(event, { id: null, action: 'navigate', value: 'work' });
+  act(event, { id: null, action: 'navigate', value: 'missing-project' });
   assert.deepEqual(
     main.webContents.sent.filter((x) => x.channel === 'TASK_WIDGET_ACTION'),
     [
       {
         channel: 'TASK_WIDGET_ACTION',
         payload: { id: 'all-1', action: 'status', value: 'review' },
+      },
+      {
+        channel: 'TASK_WIDGET_ACTION',
+        payload: { id: null, action: 'navigate', value: 'work' },
       },
     ],
   );

@@ -158,12 +158,14 @@ describe('TaskWidgetWorkflowService', () => {
     expect(router.navigate).toHaveBeenCalledWith(['tag', 'TODAY', 'tasks']);
     await service.act(null, 'navigate', 'INBOX_PROJECT');
     expect(router.navigate).toHaveBeenCalledWith(['project', 'INBOX_PROJECT', 'tasks']);
+    await service.act(null, 'navigate', 'work');
+    expect(router.navigate).toHaveBeenCalledWith(['project', 'work', 'tasks']);
     await service.act(null, 'navigate', 'planner');
     expect(router.navigate).toHaveBeenCalledWith(['planner']);
     await service.act(null, 'navigate', 'schedule');
     expect(router.navigate).toHaveBeenCalledWith(['schedule']);
     await service.act(null, 'navigate', 'https://example.com');
-    expect(router.navigate).toHaveBeenCalledTimes(4);
+    expect(router.navigate).toHaveBeenCalledTimes(5);
     expect(tasks.updateTags).not.toHaveBeenCalled();
   });
   it('changes status exclusively while preserving quadrant membership', async () => {

@@ -656,12 +656,24 @@ body * {
   font-size: 11px;
 }
 
-/* Two stable views, no mixed project/status dropdown. */
+/* Keep the aggregate views compact while exposing the same project scope as the app. */
 #list-view {
   display: flex;
   gap: var(--s);
   padding: 0;
   background: transparent;
+  overflow-x: auto;
+  white-space: nowrap;
+  -webkit-app-region: no-drag;
+}
+#list-view select {
+  min-width: 0;
+  max-width: 110px;
+  flex: 0 1 110px;
+  color: var(--text-color);
+  background: var(--widget-bg);
+  border: 0;
+  font: inherit;
   -webkit-app-region: no-drag;
 }
 #list-view button {

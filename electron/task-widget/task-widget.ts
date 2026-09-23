@@ -608,7 +608,8 @@ const initListeners = (): void => {
       !(
         (action === 'setup' ||
           (action === 'navigate' &&
-            ['today', 'INBOX_PROJECT', 'planner', 'schedule'].includes(String(value)))) &&
+            (['today', 'planner', 'schedule'].includes(String(value)) ||
+              listData?.projects?.some((project) => project.id === value)))) &&
         id === null
       ) &&
       (typeof id !== 'string' || !listData?.all.some((t) => t.id === id))
@@ -791,6 +792,7 @@ const updateTaskWidgetContent = (): void => {
             tasks: listData.all,
             labels: listData.labels,
             scope: displayMode,
+            activeView: listData.activeView,
             projects: listData.projects,
           }
         : undefined,

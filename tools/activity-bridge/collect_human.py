@@ -23,6 +23,9 @@ def save(path, value):
 
 
 def collect(config, recording_status='unknown'):
+    # Use the same canonical task associations as the AI collector. Otherwise
+    # managed tasks disappear from foreground matching when legacy bindings end.
+    config = bridge.effective_config(config, bridge.load_mapping(config))
     ledger_path = Path(config['ledgerFile']).expanduser()
     report_path = ledger_path.with_name('human-collection.json')
     # A first installation is a different operation; recovery must preserve its ledger.
@@ -35,7 +38,7 @@ def collect(config, recording_status='unknown'):
             ledger = json.loads(ledger_path.read_text())
             if not isinstance(ledger.get('human'), dict):
                 raise ValueError('Invalid human ledger')
-            since = bridge.timestamp(config['since'])
+            since = bridge.timestamp(config.get('humanSince', config['since']))
             events = bridge.read_history(config['historyRoot'], since, now)
             intervals = list(bridge.human_intervals(
                 events, config['bindings'], config.get('idleSeconds', 60)))

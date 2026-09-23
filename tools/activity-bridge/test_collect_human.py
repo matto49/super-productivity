@@ -49,6 +49,22 @@ class HumanCollectionTests(unittest.TestCase):
         self.assertEqual(self.ledger.read_bytes(), snapshot)
         self.assertEqual(json.loads(snapshot)['preserve'], 'existing-field')
 
+    def test_canonical_human_title_is_used_when_legacy_bindings_are_empty(self):
+        mapping = self.root / 'mapping.json'
+        mapping.write_text(json.dumps({
+            'schemaVersion': 1, 'revision': 1,
+            'profiles': {'mac': {'host': 'local', 'hostId': 'local',
+                                 'codexRoot': str(self.root)}},
+            'tasks': [{'taskId': 'task', 'links': [{
+                'threadId': 'thread', 'profileId': 'mac', 'role': 'primary',
+                'scope': 'wholeThread', 'humanTitleMatch': 'Work',
+            }]}],
+        }))
+        self.config['bindings'] = []
+        self.config['mappingFile'] = str(mapping)
+        result = collect_human.collect(self.config)
+        self.assertEqual(result['matchedIntervals'], 1)
+
     def test_failed_read_preserves_ledger_and_marks_failure(self):
         before = self.ledger.read_bytes()
         with patch.object(bridge, 'read_history', side_effect=PermissionError('denied')):

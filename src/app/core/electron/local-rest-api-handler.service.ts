@@ -639,25 +639,22 @@ export class LocalRestApiHandlerService {
       const task = await this._getTaskById(taskId);
       if (!task)
         return createErrorResponse(requestId, 404, 'TASK_NOT_FOUND', 'Task not found');
-      // Explicit external intent; one persistent update contains both the receipt and work log.
-      // Only leaf tasks accept imports: parents derive their time from children.
-      if (task.subTaskIds.length)
-        return createErrorResponse(
-          requestId,
-          400,
-          'INVALID_INPUT',
-          'Import activity into a leaf task',
-        );
+      // Parent native time is derived from children. Keep its own observation
+      // receipt in notes without replacing the derived work log.
       try {
         const changes = mergeTaskActivity(
           task.notes || '',
-          task.timeSpentOnDay,
+          task.subTaskIds.length ? {} : task.timeSpentOnDay,
           body.source,
           body.date,
           { humanMs: body.humanMs, aiMs: body.aiMs },
         );
         const hasNewActivity = changes.notes !== task.notes;
-        if (hasNewActivity) this._taskService.update(taskId, changes);
+        if (hasNewActivity)
+          this._taskService.update(
+            taskId,
+            task.subTaskIds.length ? { notes: changes.notes } : changes,
+          );
         if (
           hasNewActivity &&
           body.inProgress &&

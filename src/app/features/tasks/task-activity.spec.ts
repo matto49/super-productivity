@@ -1,4 +1,4 @@
-import { mergeTaskActivity, readTaskActivity } from './task-activity';
+import { mergeTaskActivity, readTaskActivity, sumTaskActivity } from './task-activity';
 
 describe('task activity imports', () => {
   it('deduplicates retries and preserves manually tracked time', () => {
@@ -40,6 +40,7 @@ describe('task activity imports', () => {
       { humanMs: 10000, aiMs: 50000 },
     );
     expect(second.timeSpentOnDay['2026-09-07']).toBe(40000);
+    expect(sumTaskActivity(second.notes)).toEqual({ humanMs: 40000, aiMs: 170000 });
   });
   it('rejects corrupted receipts and invalid totals without resetting history', () => {
     expect(() => readTaskActivity('<!-- sp-activity-v1:broken -->')).toThrow();

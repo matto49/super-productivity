@@ -1126,6 +1126,24 @@ describe('LocalRestApiHandlerService', () => {
         expect(changes.timeSpentOnDay?.['2026-09-07']).toBe(120000);
         expect(changes.notes).toContain('sp-activity-v1:');
       });
+      it('updates a parent receipt without replacing time derived from children', async () => {
+        const parent = createMockTask('parent-1', {
+          subTaskIds: ['child-1'],
+          timeSpentOnDay: { ['2026-09-07']: 90000 },
+        });
+        Object.defineProperty(taskServiceMock, 'getByIdOnce$', {
+          get: () => (_id: string) => of(parent),
+        });
+        const response = await sendRequestAndWait(
+          createRequest('PUT', '/tasks/parent-1/activity', {
+            body: { source: 'mac', date: '2026-09-07', humanMs: 692000, aiMs: 300000 },
+          }),
+        );
+        expect(response.body.ok).toBe(true);
+        expect(taskServiceMock.update).toHaveBeenCalledOnceWith('parent-1', {
+          notes: jasmine.stringMatching('sp-activity-v1:'),
+        });
+      });
       it('rejects negative durations before any writes', async () => {
         Object.defineProperty(taskServiceMock, 'getByIdOnce$', {
           get: () => (_id: string) => of(createMockTask('task-1')),

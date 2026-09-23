@@ -95,13 +95,14 @@ def read_history(root, since, until):
         if segment_time + 600 < since or segment_time > until:
             continue
         try:
-            for line in (folder / 'events.jsonl').open():
-                try:
-                    event = json.loads(line)
-                    if timestamp(event['timestamp']) <= until:
-                        events.append(event)
-                except (ValueError, KeyError):
-                    continue
+            with (folder / 'events.jsonl').open() as stream:
+                for line in stream:
+                    try:
+                        event = json.loads(line)
+                        if timestamp(event['timestamp']) <= until:
+                            events.append(event)
+                    except (ValueError, KeyError):
+                        continue
         except FileNotFoundError:
             continue
     return sorted(events, key=lambda e: (e['timestamp'], e.get('id', 0)))
@@ -204,17 +205,29 @@ def run(config, apply=False, ai_only=False):
     mapping = load_mapping(config)
     config = effective_config(config, mapping)
     since = timestamp(config['since'])
+    human_since = timestamp(config.get('humanSince', config['since']))
     until = time.time()
     timezone = ZoneInfo(config.get('timezone', 'Asia/Shanghai'))
-    events = [] if ai_only else read_history(config['historyRoot'], since, until)
+    events = [] if ai_only else read_history(config['historyRoot'], human_since, until)
     totals = {}
     ledger_path = Path(config['ledgerFile']).expanduser()
     if ai_only and not ledger_path.exists():
         raise ValueError('AI-only import requires the existing human ledger; refusing to reset human totals')
     ledger = json.loads(ledger_path.read_text()) if ledger_path.exists() else {'human': {}}
+    # Recovery after loss of the interval ledger can retain only totals proven by
+    # already-imported Todo receipts. Keep them separate from observed intervals:
+    # inventing timestamps would make later attribution and deduplication unsound.
+    for task, days in ledger.get('humanBaselineMs', {}).items():
+        for day, milliseconds in days.items():
+            if (not isinstance(milliseconds, int) or isinstance(milliseconds, bool)
+                    or milliseconds < 0 or milliseconds > 86400000
+                    or dt.date.fromisoformat(day).isoformat() != day):
+                raise ValueError('Invalid recovered human baseline')
+            bucket = totals.setdefault(task, {}).setdefault(day, {'humanMs': 0, 'aiMs': 0})
+            bucket['humanMs'] += milliseconds
     for task, start, end in human_intervals(events, config['bindings'], config.get('idleSeconds', 60)):
-        if end > since:
-            start = max(start, since)
+        if end > human_since:
+            start = max(start, human_since)
             # Stable timestamp key + absolute end makes replays idempotent.
             ledger['human'][f'{task}/{start}'] = [task, start, end]
     for task, start, end in ledger['human'].values():

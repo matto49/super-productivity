@@ -37,6 +37,16 @@ export const readTaskActivity = (notes: string = ''): TaskActivityLedger => {
   return ledger;
 };
 
+/** Aggregates receipt totals without conflating AI elapsed with native task time. */
+export const sumTaskActivity = (notes: string = ''): TaskActivityDay =>
+  Object.values(readTaskActivity(notes)).reduce(
+    (total, day) => ({
+      humanMs: total.humanMs + day.humanMs,
+      aiMs: total.aiMs + day.aiMs,
+    }),
+    { humanMs: 0, aiMs: 0 },
+  );
+
 export const mergeTaskActivity = (
   notes: string,
   timeSpentOnDay: Record<string, number>,

@@ -2544,6 +2544,7 @@
       "PENDING": "To do",
       "HUMAN_TIME": "Review (estimated)",
       "AI_TIME": "AI elapsed",
+      "TRACKED_TIME": "Tracked",
       "AI_CAPTURE": "What needs doing? Include a date or duration if you know it.",
       "AI_TODAY": "Choose today’s focus",
       "AI_READY": "A little focus for today",

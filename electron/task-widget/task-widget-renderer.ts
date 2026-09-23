@@ -44,13 +44,14 @@ const listCount = document.getElementById('list-count') as HTMLElement;
 const emptyList = document.getElementById('list-empty') as HTMLElement;
 const listOpen = document.getElementById('list-open') as HTMLButtonElement;
 listOpen.addEventListener('click', () => {
-  if (view === 'today' || view === 'INBOX_PROJECT')
+  if (view === 'today' || currentContent?.list?.projects?.some((p) => p.id === view))
     window.taskWidgetAPI.act(null, 'navigate', view);
   else window.taskWidgetAPI.showMainWindow();
 });
 let lastList = '';
 let currentContent: TaskWidgetContentData | undefined;
-let view = localStorage.getItem('task-widget-view') || 'focus';
+let view = localStorage.getItem('task-widget-view') || '';
+let lastMainView: string | undefined;
 const viewSelect = document.createElement('nav');
 viewSelect.id = 'list-view';
 listTitle.replaceWith(viewSelect);
@@ -267,12 +268,33 @@ const renderContent = (data: TaskWidgetContentData): void => {
     const snapshot = JSON.stringify(data.list);
     if (snapshot === lastList) return;
     lastList = snapshot;
-    const { labels, scope } = data.list;
+    const { labels, scope, activeView, projects = [] } = data.list;
+    if (activeView !== lastMainView) {
+      lastMainView = activeView;
+      if (activeView) view = activeView;
+    }
+    if (!view) view = scope;
     const choices = [
+      ['focus', labels.focus || 'Focus'],
       ['today', labels.today],
       ['all', labels.all],
     ];
-    if (!choices.some(([id]) => id === view)) view = 'all';
+    if (!choices.some(([id]) => id === view) && !projects.some((p) => p.id === view))
+      view = 'focus';
+    const projectSelect = document.createElement('select');
+    projectSelect.setAttribute('aria-label', labels.project || 'Project');
+    projectSelect.append(new Option(labels.project || 'Project', ''));
+    for (const project of projects)
+      projectSelect.append(new Option(project.title, project.id));
+    projectSelect.value = projects.some((p) => p.id === view) ? view : '';
+    projectSelect.addEventListener('change', () => {
+      if (!projectSelect.value) return;
+      view = projectSelect.value;
+      localStorage.setItem('task-widget-view', view);
+      window.taskWidgetAPI.act(null, 'navigate', view);
+      lastList = '';
+      if (currentContent) renderContent(currentContent);
+    });
     viewSelect.replaceChildren(
       ...choices.map(([id, title]) => {
         const button = document.createElement('button');
@@ -282,11 +304,13 @@ const renderContent = (data: TaskWidgetContentData): void => {
         button.addEventListener('click', () => {
           view = id;
           localStorage.setItem('task-widget-view', view);
+          if (view === 'today') window.taskWidgetAPI.act(null, 'navigate', view);
           lastList = '';
           if (currentContent) renderContent(currentContent);
         });
         return button;
       }),
+      projectSelect,
     );
     const tasks = data.list.tasks.filter(
       (t) =>
@@ -481,6 +505,9 @@ const renderContent = (data: TaskWidgetContentData): void => {
         }
         if (task.humanMs || !task.humanCoverageIncomplete) {
           measures.push(`${labels.human || ''} ${minutes(task.humanMs || 0)}`);
+        }
+        if (task.trackedMs && task.trackedMs > (task.humanMs || 0)) {
+          measures.push(`${labels.tracked || ''} ${minutes(task.trackedMs)}`);
         }
         metrics.textContent = measures.join(' · ');
         metrics.hidden = !measures.length;

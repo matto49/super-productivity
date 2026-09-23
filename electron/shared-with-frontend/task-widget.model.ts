@@ -16,6 +16,7 @@ export interface TaskWidgetListItem {
   scheduleLabel?: string;
   humanMs?: number;
   aiMs?: number;
+  trackedMs?: number;
   associationLabel?: string;
   associationDetail?: string;
   aiCoverageIncomplete?: boolean;
@@ -25,6 +26,7 @@ export interface TaskWidgetListItem {
 export interface TaskWidgetListData {
   today: TaskWidgetListItem[];
   all: TaskWidgetListItem[];
+  activeView?: string;
   projects?: { id: string; title: string }[];
   labels: {
     today: string;
@@ -39,6 +41,7 @@ export interface TaskWidgetListData {
     pending?: string;
     human?: string;
     ai?: string;
+    tracked?: string;
     review?: string;
     focus?: string;
     important?: string;
@@ -78,6 +81,7 @@ export interface TaskWidgetContentData {
     tasks: TaskWidgetListItem[];
     labels: TaskWidgetListData['labels'];
     scope: 'today' | 'all';
+    activeView?: string;
     projects?: { id: string; title: string }[];
   };
 }
