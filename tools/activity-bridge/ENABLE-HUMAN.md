@@ -4,7 +4,7 @@
 
 ## 现成入口
 
-仓库 `/Users/bytedance/code/self/super-productivity`。
+从当前运行中的 Super Productivity 检出目录执行。人工采集必须在已获授权的 Mac Codex 环境中运行；devbox 定时器只负责导入账本和写回 Todo。
 运行前使用 Computer History skill，并尝试官方 `computer_history_status`。失败只记为 unknown；用户已明确授权利用该任务实际可读的已有历史，不把 unknown 伪报为 running，也不启动或修改录制设置。
 
 ```sh
