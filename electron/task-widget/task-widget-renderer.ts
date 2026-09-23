@@ -305,7 +305,7 @@ const renderContent = (data: TaskWidgetContentData): void => {
         (view === 'focus'
           ? t.inProgress || t.review
           : view === 'today'
-            ? t.today
+            ? t.inTodayView
             : t.projectId === view),
     );
 
@@ -485,7 +485,12 @@ const renderContent = (data: TaskWidgetContentData): void => {
           ),
         );
         const metrics = document.createElement('small');
-        const minutes = (ms: number): string => `${Math.floor(ms / 60000)}m`;
+        const minutes = (ms: number): string => {
+          const total = Math.floor(ms / 60000);
+          const hours = Math.floor(total / 60);
+          const remainder = total % 60;
+          return hours ? `${hours}h${remainder ? ` ${remainder}m` : ''}` : `${total}m`;
+        };
         const measures: string[] = [];
         if (task.aiMs || !task.aiCoverageIncomplete) {
           measures.push(`${labels.ai || 'AI'} ${minutes(task.aiMs || 0)}`);
@@ -508,7 +513,7 @@ const renderContent = (data: TaskWidgetContentData): void => {
         schedule.textContent =
           task.scheduleLabel ||
           (task.today ? labels.today || '' : task.projectTitle || '');
-        body.append(schedule);
+        body.append(schedule, metrics);
         const controls = document.createElement('div');
         controls.className = 'workflow-controls';
         const project = document.createElement('select');
@@ -551,7 +556,7 @@ const renderContent = (data: TaskWidgetContentData): void => {
         more.className = 'task-adjustments';
         const summary = document.createElement('summary');
         summary.textContent = labels.detail || '';
-        more.append(summary, controls, metrics, association);
+        more.append(summary, controls, association);
         body.append(more);
         if (task.codexThreadUrl) {
           const jump = document.createElement('button');

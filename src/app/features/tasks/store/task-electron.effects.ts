@@ -15,7 +15,7 @@ import { setCurrentTask, unsetCurrentTask } from './task.actions';
 import { combineLatest } from 'rxjs';
 import { TranslateService } from '@ngx-translate/core';
 import { T } from '../../../t.const';
-import { selectAllTasks } from './task.selectors';
+import { selectAllTasks, selectOverdueTasksWithSubTasks } from './task.selectors';
 import { select, Store } from '@ngrx/store';
 import {
   filter,
@@ -186,6 +186,7 @@ export class TaskElectronEffects {
       combineLatest([
         this._store$.select(selectAllTasks),
         this._store$.select(selectTodayTaskIds),
+        this._store$.select(selectOverdueTasksWithSubTasks),
         this._projects.list$,
         this._router.events.pipe(
           map(() => this._router.url),
@@ -194,7 +195,7 @@ export class TaskElectronEffects {
         ),
         this._translate.onLangChange.pipe(startWith(null)),
       ]).pipe(
-        map(([tasks, todayIds, projects, route]) => {
+        map(([tasks, todayIds, overdueTasks, projects, route]) => {
           const segments = route.split('?')[0].split('/').filter(Boolean);
           const activeView =
             segments[0] === 'tag' && segments[1] === 'TODAY'
@@ -204,6 +205,8 @@ export class TaskElectronEffects {
                 ? segments[1]
                 : undefined;
           const openTasks = tasks.filter((task) => !task.isDone);
+          const todayViewIds = [...todayIds, ...overdueTasks.map((task) => task.id)];
+          const todayViewIdSet = new Set(todayViewIds);
           const item = (task: (typeof tasks)[number]): TaskWidgetListItem => {
             let activity = { humanMs: 0, aiMs: 0 };
             try {
@@ -247,6 +250,7 @@ export class TaskElectronEffects {
               trackedMs: task.timeSpent,
               review: task.tagIds.includes(REVIEW_TAG_ID),
               today: todayIds.includes(task.id),
+              inTodayView: todayViewIdSet.has(task.id),
               todayRank: todayIds.indexOf(task.id),
               important: task.tagIds.includes(IMPORTANT_TAG.id),
               urgent: task.tagIds.includes(URGENT_TAG.id),
@@ -255,21 +259,32 @@ export class TaskElectronEffects {
             };
           };
           const entities = new Map(openTasks.map((task) => [task.id, task]));
+          const all = projects.flatMap((project) =>
+            [...project.taskIds, ...project.backlogTaskIds].flatMap((id) => {
+              const task = entities.get(id);
+              return task && !task.parentId ? [item(task)] : [];
+            }),
+          );
+          const allIds = new Set(all.map((task) => task.id));
+          // Today can surface a scheduled subtask without its parent. Keep it
+          // available in the widget's shared task source as the main panel does.
+          for (const id of todayViewIds) {
+            if (allIds.has(id)) continue;
+            const task = entities.get(id);
+            if (!task) continue;
+            all.push(item(task));
+            allIds.add(id);
+          }
           return {
             activeView,
             projects: projects
               .filter((p) => !p.isHiddenFromMenu)
               .map(({ id, title }) => ({ id, title })),
-            today: todayIds.flatMap((id) => {
+            today: todayViewIds.flatMap((id) => {
               const task = entities.get(id);
               return task ? [item(task)] : [];
             }),
-            all: projects.flatMap((project) =>
-              [...project.taskIds, ...project.backlogTaskIds].flatMap((id) => {
-                const task = entities.get(id);
-                return task && !task.parentId ? [item(task)] : [];
-              }),
-            ),
+            all,
             labels: {
               aiReady: this._translate.instant('GCF.TASK_WIDGET.AI_READY'),
               aiAdopt: this._translate.instant('GCF.TASK_WIDGET.AI_ADOPT'),

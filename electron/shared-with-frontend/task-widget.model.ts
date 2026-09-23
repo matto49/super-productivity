@@ -5,6 +5,7 @@ export interface TaskWidgetListItem {
   inProgress?: boolean;
   review?: boolean;
   today?: boolean;
+  inTodayView?: boolean;
   todayRank?: number;
   important?: boolean;
   urgent?: boolean;

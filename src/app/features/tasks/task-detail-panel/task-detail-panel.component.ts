@@ -93,6 +93,7 @@ import {
 } from '../add-subtask-input/add-subtask-input.component';
 import { findNextTaskAfterSubtree } from '../../../util/find-adjacent-focusable';
 import { TaskContextMenuComponent } from '../task-context-menu/task-context-menu.component';
+import { sumTaskActivity } from '../task-activity';
 
 @Component({
   selector: 'task-detail-panel',
@@ -153,6 +154,13 @@ export class TaskDetailPanelComponent implements OnInit, AfterViewInit, OnDestro
 
   // Inputs
   task = input.required<TaskWithSubTasks>();
+  activityTotals = computed(() => {
+    try {
+      return sumTaskActivity(this.task().notes || '');
+    } catch {
+      return { humanMs: 0, aiMs: 0 };
+    }
+  });
   isOver = input<boolean>(false);
   isDialogMode = input<boolean>(false);
 
