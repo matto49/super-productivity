@@ -464,7 +464,11 @@ body * {
   -webkit-app-region: no-drag;
 }
 #list-view {
+  width: 140px;
   max-width: 70%;
+  flex: 1 1 140px;
+  font-size: 12px;
+  cursor: pointer;
 }
 .list-task-body {
   grid-template-columns: minmax(0, 1fr) 24px 24px;
@@ -656,39 +660,8 @@ body * {
   font-size: 11px;
 }
 
-/* Keep the aggregate views compact while exposing the same project scope as the app. */
-#list-view {
-  display: flex;
-  gap: var(--s);
-  padding: 0;
-  background: transparent;
-  overflow-x: auto;
-  white-space: nowrap;
-  -webkit-app-region: no-drag;
-}
-#list-view select {
-  min-width: 0;
-  max-width: 110px;
-  flex: 0 1 110px;
-  color: var(--text-color);
-  background: var(--widget-bg);
-  border: 0;
-  font: inherit;
-  -webkit-app-region: no-drag;
-}
-#list-view button {
-  border: 0;
-  background: transparent;
-  color: var(--text-color-muted);
-  font: inherit;
-  padding: var(--s-half) 0;
-  cursor: pointer;
-}
-#list-view button[aria-pressed='true'] {
-  color: var(--text-color);
-  font-weight: 600;
-}
-#list-view button:focus-visible {
+/* One compact selector keeps every scope reachable at the minimum widget width. */
+#list-view:focus-visible {
   outline: 2px solid var(--focus-ring);
 }
 .ai-plan-fields {

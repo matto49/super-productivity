@@ -31,6 +31,7 @@ export interface TaskWidgetListData {
   labels: {
     today: string;
     all: string;
+    view?: string;
     empty: string;
     complete: string;
     open: string;

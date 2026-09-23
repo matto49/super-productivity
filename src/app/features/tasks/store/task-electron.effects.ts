@@ -309,6 +309,7 @@ export class TaskElectronEffects {
               tracked: this._translate.instant(T.GCF.TASK_WIDGET.TRACKED_TIME),
               today: this._translate.instant(T.GCF.TASK_WIDGET.MODE_TODAY),
               all: this._translate.instant(T.GCF.TASK_WIDGET.MODE_ALL),
+              view: this._translate.instant(T.GCF.TASK_WIDGET.DISPLAY_MODE),
               empty: this._translate.instant(T.GCF.TASK_WIDGET.EMPTY_LIST),
               complete: this._translate.instant(T.GCF.TASK_WIDGET.COMPLETE_TASK),
               open: this._translate.instant(T.GCF.TASK_WIDGET.OPEN_APP),

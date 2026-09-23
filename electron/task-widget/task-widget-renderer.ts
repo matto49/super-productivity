@@ -52,9 +52,17 @@ let lastList = '';
 let currentContent: TaskWidgetContentData | undefined;
 let view = localStorage.getItem('task-widget-view') || '';
 let lastMainView: string | undefined;
-const viewSelect = document.createElement('nav');
+const viewSelect = document.createElement('select');
 viewSelect.id = 'list-view';
 listTitle.replaceWith(viewSelect);
+viewSelect.addEventListener('change', () => {
+  view = viewSelect.value;
+  localStorage.setItem('task-widget-view', view);
+  if (view === 'today' || currentContent?.list?.projects?.some((p) => p.id === view))
+    window.taskWidgetAPI.act(null, 'navigate', view);
+  lastList = '';
+  if (currentContent) renderContent(currentContent);
+});
 let editing = false;
 let draggedId: string | undefined;
 let draggedPriority = 0;
@@ -281,37 +289,16 @@ const renderContent = (data: TaskWidgetContentData): void => {
     ];
     if (!choices.some(([id]) => id === view) && !projects.some((p) => p.id === view))
       view = 'focus';
-    const projectSelect = document.createElement('select');
-    projectSelect.setAttribute('aria-label', labels.project || 'Project');
-    projectSelect.append(new Option(labels.project || 'Project', ''));
+    const projectGroup = document.createElement('optgroup');
+    projectGroup.label = labels.project || 'Project';
     for (const project of projects)
-      projectSelect.append(new Option(project.title, project.id));
-    projectSelect.value = projects.some((p) => p.id === view) ? view : '';
-    projectSelect.addEventListener('change', () => {
-      if (!projectSelect.value) return;
-      view = projectSelect.value;
-      localStorage.setItem('task-widget-view', view);
-      window.taskWidgetAPI.act(null, 'navigate', view);
-      lastList = '';
-      if (currentContent) renderContent(currentContent);
-    });
+      projectGroup.append(new Option(project.title, project.id));
+    viewSelect.setAttribute('aria-label', labels.view || 'View');
     viewSelect.replaceChildren(
-      ...choices.map(([id, title]) => {
-        const button = document.createElement('button');
-        button.textContent = title;
-        button.type = 'button';
-        button.setAttribute('aria-pressed', String(view === id));
-        button.addEventListener('click', () => {
-          view = id;
-          localStorage.setItem('task-widget-view', view);
-          if (view === 'today') window.taskWidgetAPI.act(null, 'navigate', view);
-          lastList = '';
-          if (currentContent) renderContent(currentContent);
-        });
-        return button;
-      }),
-      projectSelect,
+      ...choices.map(([id, title]) => new Option(title, id)),
+      projectGroup,
     );
+    viewSelect.value = view;
     const tasks = data.list.tasks.filter(
       (t) =>
         view === 'all' ||
