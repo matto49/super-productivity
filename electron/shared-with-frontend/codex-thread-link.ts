@@ -1,8 +1,21 @@
 // Only navigation to an existing thread. Never accept prompt/command parameters.
-const THREAD_LINK = /^codex:\/\/threads\/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+const THREAD_LINK =
+  /^codex:\/\/threads\/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}(?:\?hostId=([A-Za-z0-9_.%-]+))?$/i;
 
-export const isCodexThreadLink = (value: unknown): value is string =>
-  typeof value === 'string' && value === value.trim() && THREAD_LINK.test(value);
+export const isCodexThreadLink = (value: unknown): value is string => {
+  if (typeof value !== 'string' || value !== value.trim()) return false;
+  const match = THREAD_LINK.exec(value);
+  if (!match) return false;
+  if (!match[1]) return true;
+  try {
+    const hostId = decodeURIComponent(match[1]);
+    return (
+      /^[A-Za-z0-9_.:-]{1,128}$/.test(hostId) && encodeURIComponent(hostId) === match[1]
+    );
+  } catch {
+    return false;
+  }
+};
 
 export const getCodexThreadLink = (notes: string = ''): string | undefined => {
   const association = getCodexAssociation(notes);

@@ -493,7 +493,7 @@ test('progress only forwards displayed task IDs from the widget main frame', asy
 test('Codex jump only opens the cached safe thread link for a displayed task', async () => {
   const mod = loadModule();
   const main = new FakeBrowserWindow();
-  const url = 'codex://threads/01a06a8a-4bca-79b0-acd1-df7fea905221';
+  const url = 'codex://threads/01a06a8a-4bca-79b0-acd1-df7fea905221?hostId=remote-ssh-discovered%3Adevbox';
   mod.initTaskWidgetSettingsListener();
   ipcHandlers.get('UPDATE_TASK_WIDGET_LIST')(
     { sender: main.webContents, senderFrame: main.webContents.mainFrame },
@@ -523,8 +523,11 @@ test('Codex links reject commands, prompts and unrelated schemes', () => {
     isExternalUrlSchemeAllowed,
   } = require('./shared-with-frontend/is-external-url-allowed.ts');
   const url = 'codex://threads/01a06a8a-4bca-79b0-acd1-df7fea905221';
+  const hostedUrl = url + '?hostId=remote-ssh-discovered%3Adevbox';
   assert.equal(getCodexThreadLink(`[Open Codex](${url})`), url);
   assert.equal(isExternalUrlSchemeAllowed(url), true);
+  assert.equal(getCodexThreadLink(`[Open Codex](${hostedUrl})`), hostedUrl);
+  assert.equal(isExternalUrlSchemeAllowed(hostedUrl), true);
   for (const bad of [
     url + '?prompt=run',
     url + '/extra',
@@ -532,6 +535,9 @@ test('Codex links reject commands, prompts and unrelated schemes', () => {
     'codex://settings',
     'https://threads/a',
     url + '\n',
+    hostedUrl + '&prompt=run',
+    url + '?hostId=devbox%2Fother',
+    url + '?hostId=devbox%ZZ',
   ]) {
     assert.equal(isCodexThreadLink(bad), false, bad);
   }
