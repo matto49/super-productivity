@@ -83,14 +83,18 @@ def effective_config(config, mapping):
 
 def projection(task, mapping, result):
     links = task['links']
+    pending = any(link['scope'] == 'pending' for link in links)
     selected = next((link for link in links if link['role'] == 'primary'), links[0] if links else None)
-    status = ('needs_scope' if any(link['scope'] == 'pending' for link in links) else
+    status = ('needs_scope' if pending else
               'not_collected' if not any(link['scope'] in ('wholeThread', 'selectedTurns') for link in links)
               else 'missing' if task['taskId'] in result['missingSessionTaskIds'] else 'collected')
+    human_binding = not pending and any(
+        link['scope'] == 'wholeThread' and link['role'] != 'background'
+        and link.get('humanTitleMatch') for link in links)
     return {'threadUrl': 'codex://threads/' + selected['threadId'] if selected else '',
             'threadCount': len(links), 'status': status, 'checkedAt': result['asOf'],
             'since': result['since'], 'revision': mapping['revision'],
-            'humanStatus': result['humanCollection']}
+            'humanStatus': result['humanCollection'] if human_binding else 'not_collected'}
 
 
 def merge_projection(notes, value):

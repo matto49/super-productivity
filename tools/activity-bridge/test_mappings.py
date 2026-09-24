@@ -59,6 +59,17 @@ class MappingTests(unittest.TestCase):
         self.assertTrue(updated.startswith(notes))
         self.assertEqual(updated.count('sp-codex-v1:'), 1)
 
+    def test_human_collection_requires_an_eligible_task_binding(self):
+        mapping = fixture()
+        task = mapping['tasks'][0]
+        result = {'asOf': '2026-09-24T00:00:00Z', 'since': '2026-09-23T00:00:00Z',
+                  'missingSessionTaskIds': [], 'humanCollection': 'collected'}
+        self.assertEqual(projection(task, mapping, result)['humanStatus'], 'not_collected')
+        task['links'][0].update(scope='wholeThread', humanTitleMatch='Work')
+        self.assertEqual(projection(task, mapping, result)['humanStatus'], 'collected')
+        task['links'][0]['scope'] = 'pending'
+        self.assertEqual(projection(task, mapping, result)['humanStatus'], 'not_collected')
+
     def test_selected_turn_integration_and_repeat_import(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)

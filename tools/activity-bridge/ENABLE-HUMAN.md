@@ -23,3 +23,9 @@ python3 tools/activity-bridge/collect_human.py --config /Users/bytedance/todo-re
 6. 等一轮真实周期，并验证 human-collection.json 更新、devbox 定时执行、Todo API 读回。只有三项都成功才报已启用。
 
 将脱敏结果保存到 `/Users/bytedance/todo-review-20260907/activity/activation-result.json`，字段为 status(enabled/blocked)、checkedAt、scheduler、collectorResult、apiReadbackVerified、reason。不得包含原始事件、凭证、完整会话正文。
+
+## Computer History 不可用时的前台采样替代
+
+`foreground_sampler.swift` 可从启用时起估算 Codex 主面板前台活动。它需要固定的 macOS App 身份获得辅助功能权限；交互任务能读取 AX，不代表 launchd 后台任务也能读取。安装脚本只编译、签名并预备 LaunchAgent，不会自行启动。用户已授权申请该权限；授权后仍须以真正的 LaunchAgent 身份验证 `foregroundStatus=observing`，再运行一轮 `bridge.py --ai-only --apply` 并从 Todo API 回读人工收据。授权未通过时保持 `permission_required`，不得将交互任务的成功当成后台启用。
+
+采样仅在 Codex 前台、系统未空闲、主面板与 WebArea 标题一致且唯一匹配既有 `humanTitleMatch` 时归属。当前仅有两项人工标题绑定；其他 Todo 不会自动推断。它不补历史，不统计 IDE/浏览器/会议，不与原生手动计时或 AI 时长相加。详见 [README.md](README.md#macos-foreground-sampler-alternative)。

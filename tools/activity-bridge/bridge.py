@@ -5,6 +5,7 @@ Reads only configured threads. Sends aggregate seconds, never history text, to S
 import argparse
 import datetime as dt
 import json
+import math
 import re
 import subprocess
 import time
@@ -80,6 +81,35 @@ def add_interval(totals, task, start, end, field, timezone):
         bucket = totals.setdefault(task, {}).setdefault(str(date), {'humanMs': 0, 'aiMs': 0})
         bucket[field] += round((stop - start) * 1000)
         start = stop
+
+
+def merged_human_intervals(ledger):
+    """Union independently collected human spans before adding them to a day."""
+    by_task = {}
+    for source in ('human', 'foregroundHuman'):
+        entries = ledger.get(source, {})
+        if not isinstance(entries, dict):
+            raise ValueError(f'Invalid {source} ledger')
+        for entry in entries.values():
+            if (not isinstance(entry, list) or len(entry) != 3 or
+                    not isinstance(entry[0], str) or
+                    not all(isinstance(value, (int, float)) and not isinstance(value, bool)
+                            and math.isfinite(value) for value in entry[1:]) or
+                    entry[2] <= entry[1] or entry[2] - entry[1] > 86400):
+                raise ValueError(f'Invalid {source} interval')
+            by_task.setdefault(entry[0], []).append((entry[1], entry[2]))
+    for task, spans in by_task.items():
+        current = None
+        for start, end in sorted(spans):
+            if current is None:
+                current = (start, end)
+            elif start <= current[1]:
+                current = (current[0], max(current[1], end))
+            else:
+                yield task, *current
+                current = (start, end)
+        if current is not None:
+            yield task, *current
 
 
 def read_history(root, since, until):
@@ -230,7 +260,7 @@ def run(config, apply=False, ai_only=False):
             start = max(start, human_since)
             # Stable timestamp key + absolute end makes replays idempotent.
             ledger['human'][f'{task}/{start}'] = [task, start, end]
-    for task, start, end in ledger['human'].values():
+    for task, start, end in merged_human_intervals(ledger):
         add_interval(totals, task, start, end, 'humanMs', timezone)
     ai_bindings = config.get('aiBindings', config['bindings'])
     runs = read_runs(ai_bindings)
@@ -261,12 +291,30 @@ def run(config, apply=False, ai_only=False):
         ledger_path.parent.mkdir(parents=True, exist_ok=True)
         temporary = ledger_path.with_suffix('.tmp')
         temporary.write_text(json.dumps(ledger)); temporary.chmod(0o600); temporary.replace(ledger_path)
+    foreground_status = ledger.get('foregroundStatus')
+    foreground_checked = ledger.get('foregroundLastCheck')
+    foreground_fresh = (isinstance(foreground_checked, (int, float)) and
+                        not isinstance(foreground_checked, bool) and
+                        0 <= until - foreground_checked <= 900)
+    human_collection = 'skipped_preserved_ledger' if ai_only else 'collected'
+    if ai_only and foreground_status and foreground_fresh:
+        human_collection = ('collected' if foreground_status == 'observing'
+                            else f'foreground_{foreground_status}')
+    elif ai_only and foreground_status:
+        human_collection = 'foreground_stale'
+    human_sources = []
+    if ledger.get('human') or ledger.get('humanBaselineMs'):
+        human_sources.append('Computer History or recovered human baseline')
+    if ledger.get('foregroundHuman'):
+        human_sources.append('macOS Codex foreground and idle estimate')
     result = {'asOf': dt.datetime.now(dt.timezone.utc).isoformat(), 'tasks': totals,
-              'humanSource': 'Computer History foreground activity estimate',
+              'humanSource': '; '.join(human_sources) or 'No human intervals collected',
               'aiSource': 'Codex run intervals; open turns bounded by latest activity', 'applied': apply,
               'aiEvidence': evidence, 'since': config['since'], 'mappingRevision': mapping['revision'] if mapping else None,
               'missingSessionTaskIds': sorted(missing_tasks), 'aiBindingCount': len(ai_bindings),
-              'humanCollection': 'skipped_preserved_ledger' if ai_only else 'collected'}
+              'humanCollection': human_collection,
+              'foregroundCollection': (foreground_status if foreground_fresh else
+                                       'stale' if foreground_status else 'not_configured')}
     if mapping:
         result['associations'] = {task['taskId']: projection(task, mapping, result) for task in mapping['tasks']}
     if apply:

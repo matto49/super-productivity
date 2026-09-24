@@ -63,6 +63,49 @@ run (`--apply` omitted) never changes tasks. On import, native work logs and the
 small aggregate receipts follow the user's existing sync provider; raw history
 remains local.
 
+## macOS foreground sampler alternative
+
+`foreground_sampler.swift` is a separate opt-in source for *future* Codex review
+time when Computer History is unavailable. It samples every five seconds and
+counts an interval only when both endpoints have the same uniquely configured
+Todo, Codex is the foreground application, the focused window's web-area and
+main-pane header titles agree, and system idle time is at most `idleSeconds`.
+It skips app switches, ambiguous titles, long gaps, and time before `humanSince`.
+This is an on-screen attention estimate, not total human work; it cannot backfill
+past activity or count work in an IDE, browser, document, or meeting.
+
+The helper reads only title, foreground-app identity, and idle duration. It
+persists task IDs and interval timestamps in the `foregroundHuman` field of
+`ledgerFile`; no
+screen content or raw title is written. `bridge.py --ai-only` unions these
+intervals with existing Computer History intervals, so overlapping evidence is
+counted once. AI time remains separate and must not be added to human time.
+Only exact, unique `humanTitleMatch` bindings with whole-thread scope are
+eligible; title changes and duplicate titles require review before counting.
+
+On macOS, prepare the fixed app identity with:
+
+```sh
+bash tools/activity-bridge/install_foreground_sampler.sh
+```
+
+The installed app is
+`~/Applications/MattoForegroundSampler.app`; the script stages a LaunchAgent but
+does not start it. Grant that app Accessibility in System Settings, then start
+the agent with:
+
+```sh
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.matto.foreground-sampler.plist
+```
+
+Verify the *agent*
+identity by reading `foregroundStatus` and `foregroundLastCheck` in the private
+ledger; an interactive `--check` alone is not proof of background access. Use
+`launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/local.matto.foreground-sampler.plist`
+to stop it. Rebuilds
+may require Accessibility to be granted again because the local app is ad hoc
+signed. Never alter macOS privacy databases to enable it.
+
 ## Independent observer
 
 [OBSERVER.md](OBSERVER.md) describes the five-minute observer that reuses one dedicated conversation for explicit user completion acknowledgments and activity collection. It replaces the source-thread heartbeat and the removed matto-productivity-dev skill. `tasks.py` provides read-only lookup and exact-ID, readback-verified completion. The observer never injects messages into business conversations.
