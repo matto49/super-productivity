@@ -9,6 +9,7 @@ import json
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import tasks
 
@@ -20,7 +21,7 @@ def audit(items, config):
         if task.get('isDone'):
             continue
         links = tasks.compact(task, links=True)['codexLinks']
-        thread_ids = [link.rsplit('/', 1)[-1].lower() for link in links]
+        thread_ids = [urlsplit(link).path.rsplit('/', 1)[-1].lower() for link in links]
         coverage = {}
         issues = []
         if not thread_ids:
