@@ -319,6 +319,7 @@ export type FocusModeConfig = Readonly<{
 }>;
 
 export type TaskWidgetConfig = Readonly<{
+  displayMode?: 'timer' | 'today' | 'all';
   isEnabled?: boolean;
   isAlwaysShow?: boolean;
   opacity?: number;

@@ -167,3 +167,511 @@ body * {
   margin-left: 0;
   padding-left: 0;
 }
+
+/* Standalone Electron surface: provide the shared token defaults locally. */
+:root {
+  --s: 8px;
+  --s-half: 4px;
+  --s2: 16px;
+  --font-size-md: 14px;
+  --text-color: #333;
+  --divider-color: #ddd;
+  --focus-ring: #6495ed;
+  --widget-bg: rgba(255, 255, 255, var(--opacity));
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --text-color: #e0e0e0;
+    --divider-color: #555;
+    --widget-bg: rgba(32, 32, 32, var(--opacity));
+  }
+}
+[hidden] {
+  display: none !important;
+}
+#task-list-widget {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--widget-bg);
+  color: var(--text-color);
+  font-size: var(--font-size-md);
+}
+#list-header {
+  display: flex;
+  align-items: center;
+  gap: var(--s);
+  padding: var(--s2);
+  border-bottom: 1px solid var(--divider-color);
+  -webkit-app-region: drag;
+}
+#list-title {
+  flex: 1;
+}
+#list-open {
+  -webkit-app-region: no-drag;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--divider-color);
+  border-radius: var(--s-half);
+  padding: var(--s-half) var(--s);
+  cursor: pointer;
+}
+#task-list {
+  overflow-y: auto;
+  min-height: 0;
+  flex: 1;
+  padding: var(--s);
+  -webkit-app-region: no-drag;
+}
+.list-task {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s);
+  padding: var(--s) var(--s-half);
+  line-height: 1.5;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.list-task input[type='checkbox'] {
+  margin-top: var(--s-half);
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  accent-color: var(--focus-ring);
+}
+#list-empty {
+  padding: var(--s2);
+}
+#list-open:focus-visible,
+.list-task input:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.list-task-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-half);
+}
+.list-task-body > span {
+  flex-basis: 100%;
+}
+.list-task-body button {
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--divider-color);
+  border-radius: var(--s-half);
+  padding: var(--s-half) var(--s);
+  cursor: pointer;
+}
+.list-task-body button[aria-pressed='true'] {
+  border-color: var(--focus-ring);
+}
+.list-task-body small {
+  flex-basis: 100%;
+}
+
+/* Calm, compact list surface, independent of the timer theme. */
+#task-list-widget {
+  color-scheme: light;
+  --text-color: #303a48;
+  --text-color-muted: #7b8593;
+  --divider-color: #edf0f3;
+  --focus-ring: #3478d4;
+  --widget-bg: #ffffff;
+  --hover-bg: #f6f8fa;
+  --progress-color: #328263;
+  --frame-color: #dfe4ea;
+  --checkbox-color: #b7c0cb;
+  --row-padding: 10px;
+  --header-padding: 12px 14px;
+  --list-padding: 12px;
+  --control-radius: 6px;
+  --widget-radius: 12px;
+  border: 1px solid var(--frame-color);
+  border-radius: var(--widget-radius);
+  overflow: hidden;
+}
+#list-header {
+  padding: var(--header-padding);
+  gap: var(--s);
+}
+#list-title {
+  flex: initial;
+  font-size: 13px;
+  font-weight: 600;
+}
+#list-count {
+  color: var(--text-color-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+#list-open {
+  margin-left: auto;
+  border: 0;
+  color: var(--text-color-muted);
+  border-radius: var(--control-radius);
+}
+#task-list {
+  padding: 0 var(--list-padding);
+  scrollbar-width: thin;
+  scrollbar-color: var(--divider-color) transparent;
+}
+.list-task {
+  padding: var(--row-padding) 0;
+  border-bottom: 1px solid var(--divider-color);
+  gap: var(--s);
+  cursor: default;
+}
+.list-task:last-child {
+  border-bottom: 0;
+}
+.list-task.is-subtask {
+  padding-left: var(--s2);
+}
+.list-task input[type='checkbox'] {
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  margin-top: var(--s-half);
+  border: 1px solid var(--checkbox-color);
+  border-radius: var(--s-half);
+  cursor: pointer;
+}
+.list-task input[type='checkbox']:checked {
+  background: var(--progress-color);
+  border-color: var(--progress-color);
+}
+.list-task-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px 24px;
+  gap: calc(var(--s-half) / 2) var(--s-half);
+}
+.list-task-body > span {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 400;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.list-task-body button {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--control-radius);
+  line-height: 1;
+  font-size: 13px;
+  color: var(--text-color-muted);
+  background: transparent;
+}
+.list-task-body button[aria-pressed] {
+  grid-column: 2;
+}
+.list-task-body button[aria-pressed='true'] {
+  color: var(--progress-color);
+}
+.list-task-body button:not([aria-pressed]) {
+  grid-column: 3;
+}
+.list-task-body button:hover,
+#list-open:hover {
+  background: var(--hover-bg);
+}
+.list-task-body small {
+  grid-column: 1 / -1;
+  color: var(--text-color-muted);
+  font-size: 10px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+.list-task-body button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Avoid a second rounded outline inside the native macOS window frame. */
+.native-rounded-window #task-list-widget {
+  border: 0;
+  border-radius: 0;
+}
+
+#list-add {
+  margin-left: auto;
+  -webkit-app-region: no-drag;
+  border: 0;
+  background: transparent;
+  color: var(--text-color-muted);
+  width: 24px;
+  height: 24px;
+  font-size: 20px;
+  cursor: pointer;
+}
+#list-open {
+  margin-left: 0;
+}
+#list-add-form {
+  display: flex;
+  gap: var(--s);
+  padding: var(--s) var(--s2);
+  border-bottom: 1px solid var(--divider-color);
+}
+#list-add-form input,
+.task-title-editor {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  outline: 1px solid var(--focus-ring);
+  border-radius: var(--s-half);
+  background: var(--widget-bg);
+  color: var(--text-color);
+  font: inherit;
+  padding: 0 var(--s-half);
+  user-select: text;
+}
+#list-add-form button {
+  border: 0;
+  background: transparent;
+  color: var(--focus-ring);
+  cursor: pointer;
+}
+.list-task-body > span {
+  cursor: text;
+}
+#list-add:focus-visible,
+.list-task-body > span:focus-visible {
+  outline: 2px solid var(--focus-ring);
+}
+
+.list-task[draggable='true'] {
+  cursor: grab;
+}
+.list-task.drop-before {
+  box-shadow: inset 0 2px 0 var(--focus-ring);
+}
+.list-task.drop-after {
+  box-shadow: inset 0 -2px 0 var(--focus-ring);
+}
+
+#list-view,
+.workflow-controls select {
+  color: var(--text-color);
+  background: var(--widget-bg);
+  border: 0;
+  min-width: 0;
+  font: inherit;
+  -webkit-app-region: no-drag;
+}
+#list-view {
+  width: 140px;
+  max-width: 70%;
+  flex: 1 1 140px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.list-task-body {
+  grid-template-columns: minmax(0, 1fr) 24px 24px;
+}
+.workflow-controls {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--s-half);
+}
+.workflow-controls select {
+  max-width: 90px;
+  font-size: 11px;
+}
+.workflow-controls button {
+  width: auto;
+  min-width: 24px;
+  font-size: 11px;
+}
+.workflow-controls button[aria-pressed='true'] {
+  color: var(--focus-ring);
+  font-weight: bold;
+}
+
+/* A small status indicator with the same hit area as the other row actions. */
+.list-task-body .workflow-status {
+  display: grid;
+  place-items: center;
+  color: var(--text-color-muted);
+}
+.workflow-status::before {
+  content: '';
+  width: var(--s);
+  height: var(--s);
+  border: 1px solid currentColor;
+  border-radius: 50%;
+}
+.workflow-status[aria-pressed='true']::before {
+  background: currentColor;
+}
+
+/* Capture and planning remain quiet; secondary controls open on demand. */
+.ai-planning {
+  padding: var(--s) var(--s2);
+  border-bottom: 1px solid var(--divider-color);
+}
+.ai-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s);
+}
+.ai-toolbar button,
+.ai-suggestions button {
+  border: 0;
+  background: var(--hover-bg);
+  color: var(--text-color);
+  border-radius: var(--control-radius);
+  padding: var(--s-half) var(--s);
+  cursor: pointer;
+  font: inherit;
+}
+.ai-toolbar input {
+  width: 58px;
+}
+.ai-planning input {
+  min-width: 0;
+  border: 1px solid var(--divider-color);
+  border-radius: var(--control-radius);
+  background: var(--widget-bg);
+  color: var(--text-color);
+  padding: var(--s-half);
+  font: inherit;
+}
+.ai-suggestions:empty {
+  display: none;
+}
+.ai-suggestions p,
+.ai-proposal small {
+  color: var(--text-color-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.ai-proposal {
+  display: grid;
+  gap: var(--s);
+  padding: var(--s) 0;
+  border-top: 1px solid var(--divider-color);
+}
+.ai-proposal strong {
+  font-weight: 500;
+}
+.ai-plan-fields {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr 0.7fr;
+  gap: var(--s-half);
+}
+.task-adjustments {
+  grid-column: 1 / -1;
+  color: var(--text-color-muted);
+}
+.task-adjustments summary {
+  cursor: pointer;
+  font-size: 10px;
+  width: fit-content;
+}
+.task-adjustments .workflow-controls {
+  margin-top: var(--s);
+  flex-wrap: wrap;
+}
+.ai-planning button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+.ai-suggestions {
+  max-height: 45vh;
+  overflow-y: auto;
+}
+.ai-planning {
+  flex-shrink: 0;
+}
+.ai-toolbar label {
+  display: flex;
+  align-items: center;
+  gap: var(--s-half);
+  color: var(--text-color-muted);
+}
+
+.ai-toolbar details {
+  position: relative;
+  color: var(--text-color-muted);
+  font-size: 11px;
+}
+.ai-toolbar summary {
+  cursor: pointer;
+  list-style: none;
+  padding: var(--s-half);
+}
+.ai-toolbar details label {
+  margin-top: var(--s-half);
+}
+.ai-suggestions {
+  max-height: none;
+  overflow: visible;
+}
+.ai-planning:has(.ai-proposal) {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+#task-list.planning-preview-active {
+  display: none;
+}
+.ai-plan-intro {
+  margin: var(--s2) 0 var(--s);
+}
+.ai-proposal {
+  gap: var(--s-half);
+  padding: var(--s2) 0;
+}
+.ai-proposal > strong {
+  font-size: 14px;
+  line-height: 1.5;
+}
+.ai-proposal > small {
+  font-size: 11px;
+}
+.ai-proposal details summary {
+  font-size: 11px;
+  color: var(--text-color-muted);
+  cursor: pointer;
+}
+.ai-proposal details:not([open]) ~ .ai-single-accept {
+  display: none;
+}
+.ai-proposal details[open] .ai-plan-fields {
+  margin-top: var(--s);
+}
+.ai-adopt {
+  display: block;
+  width: 100%;
+  margin: var(--s2) 0 var(--s);
+  padding: var(--s) !important;
+  font-weight: 500 !important;
+}
+.ai-suggestions > button:not(.ai-adopt) {
+  display: block;
+  margin: var(--s) auto;
+  font-size: 11px;
+}
+
+/* One compact selector keeps every scope reachable at the minimum widget width. */
+#list-view:focus-visible {
+  outline: 2px solid var(--focus-ring);
+}
+.ai-plan-fields {
+  grid-template-columns: 1.4fr 1fr;
+}
+.ai-toolbar > button {
+  background: transparent;
+  padding-left: 0;
+  color: var(--text-color-muted);
+}

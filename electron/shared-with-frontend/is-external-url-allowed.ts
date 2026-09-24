@@ -1,3 +1,5 @@
+import { isCodexThreadLink } from './codex-thread-link';
+
 /**
  * URL schemes that are permitted to reach the OS handler via shell.openExternal.
  *
@@ -25,6 +27,7 @@
  * process (shell.openExternal call sites) so both layers enforce one policy.
  */
 export const ALLOWED_EXTERNAL_URL_SCHEMES = [
+  'codex:',
   'http:',
   'https:',
   'mailto:',
@@ -104,6 +107,7 @@ export const isExternalUrlSchemeAllowed = (url: unknown): boolean => {
   if (!ALLOWED_EXTERNAL_URL_SCHEMES.includes(parsed.protocol)) {
     return false;
   }
+  if (parsed.protocol === 'codex:') return isCodexThreadLink(trimmed);
   if (parsed.protocol === 'file:') {
     // Allow ONLY the canonical local form `file:///<path>`. Anything with an
     // authority (`file://host/…`) or a path-based UNC (`file:////host`) is a

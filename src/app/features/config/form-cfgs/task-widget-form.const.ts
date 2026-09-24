@@ -11,6 +11,18 @@ export const TASK_WIDGET_FORM_CFG: ConfigFormSection<TaskWidgetConfig> = {
   isElectronOnly: true,
   items: [
     {
+      key: 'displayMode',
+      type: 'select',
+      templateOptions: {
+        label: T.GCF.TASK_WIDGET.DISPLAY_MODE,
+        options: [
+          { value: 'timer', label: T.GCF.TASK_WIDGET.MODE_TIMER },
+          { value: 'today', label: T.GCF.TASK_WIDGET.MODE_TODAY },
+          { value: 'all', label: T.GCF.TASK_WIDGET.MODE_ALL },
+        ],
+      },
+    },
+    {
       key: 'isEnabled',
       type: 'checkbox',
       templateOptions: {

@@ -17,6 +17,7 @@ describe('TaskWidgetSettingsService', () => {
     const service = TestBed.inject(TaskWidgetSettingsService);
 
     expect(service.settings()).toEqual({
+      displayMode: 'timer',
       isEnabled: false,
       isAlwaysShow: false,
       opacity: 95,
@@ -29,6 +30,7 @@ describe('TaskWidgetSettingsService', () => {
     const service = TestBed.inject(TaskWidgetSettingsService);
 
     expect(service.settings()).toEqual({
+      displayMode: 'timer',
       isEnabled: true,
       isAlwaysShow: false,
       opacity: 70,
@@ -41,11 +43,13 @@ describe('TaskWidgetSettingsService', () => {
     service.update({ isEnabled: true, opacity: 50 });
 
     expect(service.settings()).toEqual({
+      displayMode: 'timer',
       isEnabled: true,
       isAlwaysShow: false,
       opacity: 50,
     });
     expect(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')).toEqual({
+      displayMode: 'timer',
       isEnabled: true,
       isAlwaysShow: false,
       opacity: 50,
@@ -58,6 +62,7 @@ describe('TaskWidgetSettingsService', () => {
     const service = TestBed.inject(TaskWidgetSettingsService);
 
     expect(service.settings()).toEqual({
+      displayMode: 'timer',
       isEnabled: false,
       isAlwaysShow: false,
       opacity: 95,

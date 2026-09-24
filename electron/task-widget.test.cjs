@@ -9,6 +9,8 @@ const originalModuleLoad = Module._load;
 const taskWidgetModulePath = path.resolve(__dirname, 'task-widget/task-widget.ts');
 
 let createdWindows = [];
+let openedUrls = [];
+let ipcHandlers = new Map();
 let loadSimpleStoreAllImpl;
 
 const createDeferred = () => {
@@ -25,6 +27,7 @@ const createDeferred = () => {
 class FakeWebContents {
   constructor() {
     this.sent = [];
+    this.mainFrame = {};
     this._handlers = new Map();
   }
   on(eventName, handler) {
@@ -48,7 +51,8 @@ class FakeWebContents {
 }
 
 class FakeBrowserWindow {
-  constructor() {
+  constructor(options = {}) {
+    this.options = options;
     this._visible = false;
     this.showCount = 0;
     this.showInactiveCount = 0;
@@ -63,7 +67,9 @@ class FakeBrowserWindow {
   }
 
   loadFile() {}
-  setVisibleOnAllWorkspaces() {}
+  setVisibleOnAllWorkspaces(visible, options) {
+    this.workspaceOptions = options;
+  }
   setOpacity() {}
   setClosable() {}
   removeAllListeners() {}
@@ -88,6 +94,8 @@ class FakeBrowserWindow {
     this._visible = true;
     this.showCount += 1;
   }
+  restore() {}
+  focus() {}
   showInactive() {
     this._visible = true;
     this.showInactiveCount += 1;
@@ -103,7 +111,18 @@ const installMocks = () => {
     if (request === 'electron') {
       return {
         BrowserWindow: FakeBrowserWindow,
-        ipcMain: { on: () => {}, removeAllListeners: () => {} },
+        shell: {
+          openExternal: async (url) => {
+            openedUrls.push(url);
+          },
+        },
+        app: { getPath: () => '/tmp/sp-ai-test' },
+        ipcMain: {
+          handle: (name, cb) => ipcHandlers.set(name, cb),
+          removeHandler: (name) => ipcHandlers.delete(name),
+          on: (name, cb) => ipcHandlers.set(name, cb),
+          removeAllListeners: (name) => ipcHandlers.delete(name),
+        },
         screen: {
           getPrimaryDisplay: () => ({ workAreaSize: { width: 1920, height: 1080 } }),
           getDisplayMatching: () => ({
@@ -137,6 +156,8 @@ const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 test.beforeEach(() => {
   createdWindows = [];
+  openedUrls = [];
+  ipcHandlers = new Map();
   loadSimpleStoreAllImpl = async () => ({});
   installMocks();
 });
@@ -332,5 +353,289 @@ test('the opacity in effect at load time reaches the widget renderer once it fin
     // 5 % is below the 10 % floor, so the renderer must get the clamped value.
     [{ channel: 'update-opacity', payload: 0.1 }],
     'the opacity current at load time must reach the renderer exactly once, clamped',
+  );
+});
+
+const widgetList = {
+  today: [{ id: 'today-1', title: '<img src=x onerror=alert(1)>' }],
+  all: [{ id: 'all-1', title: 'Parallel agent work' }],
+  projects: [{ id: 'work', title: 'Work' }],
+  activeView: 'work',
+  labels: {
+    today: 'Today',
+    all: 'All',
+    empty: 'Empty',
+    complete: 'Complete',
+    open: 'Open',
+  },
+};
+
+test('list mode renders without an active timer and restores content after reload', async () => {
+  const mod = loadModule();
+  const main = new FakeBrowserWindow();
+  mod.initTaskWidgetSettingsListener();
+  ipcHandlers.get('UPDATE_TASK_WIDGET_LIST')(
+    { sender: main.webContents, senderFrame: main.webContents.mainFrame },
+    widgetList,
+  );
+  ipcHandlers.get('UPDATE_TASK_WIDGET_SETTINGS')(
+    {},
+    { isEnabled: true, isAlwaysShow: true, displayMode: 'today' },
+  );
+  await flush();
+  const win = createdWindows[1];
+  win.webContents.emitOnce('did-finish-load');
+  const content = win.webContents.sent
+    .filter((x) => x.channel === 'update-content')
+    .at(-1).payload;
+  assert.deepEqual(content.list.tasks, widgetList.all);
+  assert.equal(content.list.activeView, 'work');
+  assert.equal(win.workspaceOptions.skipTransformProcessType, true);
+  win.emit('ready-to-show');
+  assert.equal(win.workspaceOptions.skipTransformProcessType, true);
+  assert.equal(win.options.alwaysOnTop, true);
+  assert.equal(win.options.height, 360);
+  assert.equal(win.options.maxHeight, 900);
+  assert.equal(win.isVisible(), true);
+});
+
+test('completion only forwards displayed task IDs from the widget main frame', async () => {
+  const mod = loadModule();
+  const main = new FakeBrowserWindow();
+  mod.initTaskWidgetSettingsListener();
+  ipcHandlers.get('UPDATE_TASK_WIDGET_LIST')(
+    { sender: main.webContents, senderFrame: main.webContents.mainFrame },
+    widgetList,
+  );
+  ipcHandlers.get('UPDATE_TASK_WIDGET_SETTINGS')(
+    {},
+    { isEnabled: true, displayMode: 'all' },
+  );
+  await flush();
+  const win = createdWindows[1];
+  const complete = ipcHandlers.get('task-widget-complete');
+  complete(
+    { sender: main.webContents, senderFrame: main.webContents.mainFrame },
+    'all-1',
+  );
+  complete({ sender: win.webContents, senderFrame: {} }, 'all-1');
+  complete(
+    { sender: win.webContents, senderFrame: win.webContents.mainFrame },
+    'missing',
+  );
+  assert.equal(
+    main.webContents.sent.filter((x) => x.channel === 'TASK_WIDGET_COMPLETE').length,
+    0,
+  );
+  complete({ sender: win.webContents, senderFrame: win.webContents.mainFrame }, 'all-1');
+  assert.deepEqual(
+    main.webContents.sent.filter((x) => x.channel === 'TASK_WIDGET_COMPLETE'),
+    [{ channel: 'TASK_WIDGET_COMPLETE', payload: 'all-1' }],
+  );
+});
+
+test('empty today still supplies all tasks for renderer view switching', async () => {
+  const mod = loadModule();
+  const main = new FakeBrowserWindow();
+  mod.initTaskWidgetSettingsListener();
+  ipcHandlers.get('UPDATE_TASK_WIDGET_SETTINGS')(
+    {},
+    { isEnabled: true, displayMode: 'today' },
+  );
+  await flush();
+  ipcHandlers.get('UPDATE_TASK_WIDGET_LIST')(
+    { sender: main.webContents, senderFrame: main.webContents.mainFrame },
+    { ...widgetList, today: [] },
+  );
+  const win = createdWindows[1];
+  assert.deepEqual(
+    win.webContents.sent.filter((x) => x.channel === 'update-content').at(-1).payload.list
+      .tasks,
+    widgetList.all,
+  );
+});
+
+test('progress only forwards displayed task IDs from the widget main frame', async () => {
+  const mod = loadModule();
+  const main = new FakeBrowserWindow();
+  mod.initTaskWidgetSettingsListener();
+  ipcHandlers.get('UPDATE_TASK_WIDGET_LIST')(
+    { sender: main.webContents, senderFrame: main.webContents.mainFrame },
+    widgetList,
+  );
+  ipcHandlers.get('UPDATE_TASK_WIDGET_SETTINGS')(
+    {},
+    { isEnabled: true, displayMode: 'all' },
+  );
+  await flush();
+  const win = createdWindows[1];
+  const complete = ipcHandlers.get('task-widget-progress');
+  complete(
+    { sender: main.webContents, senderFrame: main.webContents.mainFrame },
+    'all-1',
+  );
+  complete({ sender: win.webContents, senderFrame: {} }, 'all-1');
+  complete(
+    { sender: win.webContents, senderFrame: win.webContents.mainFrame },
+    'missing',
+  );
+  assert.equal(
+    main.webContents.sent.filter((x) => x.channel === 'TASK_WIDGET_PROGRESS').length,
+    0,
+  );
+  complete({ sender: win.webContents, senderFrame: win.webContents.mainFrame }, 'all-1');
+  assert.deepEqual(
+    main.webContents.sent.filter((x) => x.channel === 'TASK_WIDGET_PROGRESS'),
+    [{ channel: 'TASK_WIDGET_PROGRESS', payload: 'all-1' }],
+  );
+});
+
+test('Codex jump only opens the cached safe thread link for a displayed task', async () => {
+  const mod = loadModule();
+  const main = new FakeBrowserWindow();
+  const url = 'codex://threads/01a06a8a-4bca-79b0-acd1-df7fea905221';
+  mod.initTaskWidgetSettingsListener();
+  ipcHandlers.get('UPDATE_TASK_WIDGET_LIST')(
+    { sender: main.webContents, senderFrame: main.webContents.mainFrame },
+    { ...widgetList, all: [{ id: 'all-1', title: 'Task', codexThreadUrl: url }] },
+  );
+  ipcHandlers.get('UPDATE_TASK_WIDGET_SETTINGS')(
+    {},
+    { isEnabled: true, displayMode: 'all' },
+  );
+  await flush();
+  const win = createdWindows[1];
+  const jump = ipcHandlers.get('task-widget-open-codex');
+  jump({ sender: main.webContents, senderFrame: main.webContents.mainFrame }, 'all-1');
+  jump({ sender: win.webContents, senderFrame: {} }, 'all-1');
+  jump({ sender: win.webContents, senderFrame: win.webContents.mainFrame }, url);
+  assert.deepEqual(openedUrls, []);
+  jump({ sender: win.webContents, senderFrame: win.webContents.mainFrame }, 'all-1');
+  assert.deepEqual(openedUrls, [url]);
+});
+
+test('Codex links reject commands, prompts and unrelated schemes', () => {
+  const {
+    isCodexThreadLink,
+    getCodexThreadLink,
+  } = require('./shared-with-frontend/codex-thread-link.ts');
+  const {
+    isExternalUrlSchemeAllowed,
+  } = require('./shared-with-frontend/is-external-url-allowed.ts');
+  const url = 'codex://threads/01a06a8a-4bca-79b0-acd1-df7fea905221';
+  assert.equal(getCodexThreadLink(`[Open Codex](${url})`), url);
+  assert.equal(isExternalUrlSchemeAllowed(url), true);
+  for (const bad of [
+    url + '?prompt=run',
+    url + '/extra',
+    'codex://threads/new',
+    'codex://settings',
+    'https://threads/a',
+    url + '\n',
+  ]) {
+    assert.equal(isCodexThreadLink(bad), false, bad);
+  }
+  assert.equal(isExternalUrlSchemeAllowed(url + '?prompt=run'), false);
+  assert.equal(getCodexThreadLink(`[Open](${url}?prompt=run)`), undefined);
+});
+
+test('widget writes require the widget main frame, a visible task and a bounded title', async () => {
+  const mod = loadModule();
+  const main = new FakeBrowserWindow();
+  mod.initTaskWidgetSettingsListener();
+  ipcHandlers.get('UPDATE_TASK_WIDGET_LIST')(
+    { sender: main.webContents, senderFrame: main.webContents.mainFrame },
+    widgetList,
+  );
+  ipcHandlers.get('UPDATE_TASK_WIDGET_SETTINGS')(
+    {},
+    { isEnabled: true, displayMode: 'all' },
+  );
+  await flush();
+  const win = createdWindows[1];
+  const write = ipcHandlers.get('task-widget-write');
+  const event = { sender: win.webContents, senderFrame: win.webContents.mainFrame };
+  write(
+    { sender: main.webContents, senderFrame: main.webContents.mainFrame },
+    { id: null, title: 'New' },
+  );
+  write({ ...event, senderFrame: {} }, { id: null, title: 'New' });
+  for (const payload of [
+    null,
+    {},
+    { id: 'missing', title: 'New' },
+    { id: null, title: ' ' },
+    { id: null, title: 'x'.repeat(1001) },
+  ])
+    write(event, payload);
+  assert.equal(
+    main.webContents.sent.filter((x) => x.channel === 'TASK_WIDGET_WRITE').length,
+    0,
+  );
+  write(event, { id: 'all-1', title: ' Renamed ' });
+  write(event, { id: null, title: 'New task' });
+  assert.deepEqual(
+    main.webContents.sent.filter((x) => x.channel === 'TASK_WIDGET_WRITE'),
+    [
+      {
+        channel: 'TASK_WIDGET_WRITE',
+        payload: { id: 'all-1', title: 'Renamed', today: false },
+      },
+      {
+        channel: 'TASK_WIDGET_WRITE',
+        payload: { id: null, title: 'New task', today: false },
+      },
+    ],
+  );
+});
+
+test('workflow commands reject other windows, subframes, unknown tasks and actions', async () => {
+  const mod = loadModule();
+  const main = new FakeBrowserWindow();
+  mod.initTaskWidgetSettingsListener();
+  ipcHandlers.get('UPDATE_TASK_WIDGET_LIST')(
+    { sender: main.webContents, senderFrame: main.webContents.mainFrame },
+    widgetList,
+  );
+  ipcHandlers.get('UPDATE_TASK_WIDGET_SETTINGS')(
+    {},
+    { isEnabled: true, displayMode: 'all' },
+  );
+  await flush();
+  const win = createdWindows[1];
+  const act = ipcHandlers.get('task-widget-action');
+  const event = { sender: win.webContents, senderFrame: win.webContents.mainFrame };
+  act(
+    { ...event, sender: main.webContents },
+    { id: 'all-1', action: 'status', value: 'review' },
+  );
+  act({ ...event, senderFrame: {} }, { id: null, action: 'setup' });
+  for (const payload of [
+    null,
+    {},
+    { id: 'missing', action: 'status' },
+    { id: 'all-1', action: 'execute' },
+    { id: 'all-1', action: 'project', value: {} },
+  ])
+    act(event, payload);
+  assert.equal(
+    main.webContents.sent.filter((x) => x.channel === 'TASK_WIDGET_ACTION').length,
+    0,
+  );
+  act(event, { id: 'all-1', action: 'status', value: 'review' });
+  act(event, { id: null, action: 'navigate', value: 'work' });
+  act(event, { id: null, action: 'navigate', value: 'missing-project' });
+  assert.deepEqual(
+    main.webContents.sent.filter((x) => x.channel === 'TASK_WIDGET_ACTION'),
+    [
+      {
+        channel: 'TASK_WIDGET_ACTION',
+        payload: { id: 'all-1', action: 'status', value: 'review' },
+      },
+      {
+        channel: 'TASK_WIDGET_ACTION',
+        payload: { id: null, action: 'navigate', value: 'work' },
+      },
+    ],
   );
 });

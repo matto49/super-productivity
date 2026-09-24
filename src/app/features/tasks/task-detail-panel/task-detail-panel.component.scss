@@ -168,3 +168,12 @@ progress-bar {
 .local-attachments-heading {
   margin-bottom: 0;
 }
+
+.activity-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s);
+  margin: 0 var(--s3) var(--s);
+  color: var(--text-color-muted);
+  font-size: var(--font-size-sm);
+}

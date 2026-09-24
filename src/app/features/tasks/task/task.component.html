@@ -1,4 +1,5 @@
 @let t = task();
+@let activity = activityTotals();
 <swipe-block
   [isDone]="t.isDone"
   [canSwipe]="!taskTitleEditEl?.isEditing()"
@@ -63,7 +64,10 @@
           [attr.aria-label]="
             !t.subTasks?.length ? (T.F.TASK.CMP.ESTIMATE | translate) : null
           "
-          [class.hasNoTimeSpentOrEstimate]="!t.timeSpent && !t.timeEstimate"
+          [class.hasNoTimeSpentOrEstimate]="
+            !t.timeSpent && !t.timeEstimate && !activity.aiMs && !activity.humanMs
+          "
+          [class.hasActivity]="!!(activity.aiMs || activity.humanMs)"
           [class.isEditable]="!t.subTasks?.length"
           class="time-wrapper"
         >
@@ -100,6 +104,16 @@
                 </div>
               </div>
             }
+          }
+          @if (activity.aiMs || activity.humanMs) {
+            <div class="activity-time">
+              @if (activity.aiMs) {
+                <span>{{ T.GCF.TASK_WIDGET.AI_TIME | translate }} {{ activity.aiMs | msToString }}</span>
+              }
+              @if (activity.humanMs) {
+                <span>{{ T.GCF.TASK_WIDGET.HUMAN_TIME | translate }} {{ activity.humanMs | msToString }}</span>
+              }
+            </div>
           }
         </div>
 

@@ -9,6 +9,38 @@
     />
   </head>
   <body>
+    <section
+      id="task-list-widget"
+      hidden
+    >
+      <header id="list-header">
+        <strong id="list-title"></strong><span id="list-count"></span
+        ><button
+          id="list-add"
+          type="button"
+        >
+          ＋</button
+        ><button id="list-open">↗</button>
+      </header>
+      <form
+        id="list-add-form"
+        hidden
+      >
+        <input
+          id="list-add-input"
+          maxlength="1000"
+          autocomplete="off"
+        /><button type="submit">↵</button>
+      </form>
+      <div
+        id="task-list"
+        role="list"
+      ></div>
+      <p
+        id="list-empty"
+        hidden
+      ></p>
+    </section>
     <div id="task-widget-container">
       <div id="content">
         <div id="task-title">No active task</div>

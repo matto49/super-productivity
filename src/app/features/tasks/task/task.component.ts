@@ -123,6 +123,7 @@ import {
 } from '../add-subtask-input/add-subtask-input.component';
 import { AddSubtaskInputService } from '../add-subtask-input/add-subtask-input.service';
 import { getSubTaskTimeLeftForDisplay } from '../util/get-sub-task-time-left-for-display';
+import { sumTaskActivity } from '../task-activity';
 
 @Component({
   selector: 'task',
@@ -197,6 +198,15 @@ export class TaskComponent implements OnDestroy, AfterViewInit {
   readonly globalTrackingIntervalService = inject(GlobalTrackingIntervalService);
 
   task = input.required<TaskWithSubTasks>();
+  // The receipt is in task notes. A computed signal avoids parsing it on every
+  // change-detection pass through a long task list.
+  activityTotals = computed(() => {
+    try {
+      return sumTaskActivity(this.task().notes || '');
+    } catch {
+      return { humanMs: 0, aiMs: 0 };
+    }
+  });
   isBacklog = input<boolean>(false);
   isInSubTaskList = input<boolean>(false);
   showDoneAnimation = signal(false);

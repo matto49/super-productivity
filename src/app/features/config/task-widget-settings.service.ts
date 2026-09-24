@@ -6,6 +6,7 @@ import { Log } from '../../core/log';
 const STORAGE_KEY = 'sp_task_widget_settings';
 
 const DEFAULT_TASK_WIDGET_CONFIG: Required<TaskWidgetConfig> = {
+  displayMode: 'timer',
   isEnabled: false,
   isAlwaysShow: false,
   opacity: 95,
