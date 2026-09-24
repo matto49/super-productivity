@@ -243,6 +243,7 @@ export class TaskElectronEffects {
                 : task.dueDay || '',
               id: task.id,
               title: task.title,
+              parentId: task.parentId,
               codexThreadUrl: getCodexThreadLink(task.notes),
               inProgress: task.tagIds.includes(IN_PROGRESS_TAG_ID),
               humanMs: activity.humanMs,
@@ -265,6 +266,27 @@ export class TaskElectronEffects {
               return task && !task.parentId ? [item(task)] : [];
             }),
           );
+          const projectTasks = Object.fromEntries(
+            projects.map((project) => {
+              const seen = new Set<string>();
+              const collect = (id: string): TaskWidgetListItem[] => {
+                if (seen.has(id)) return [];
+                seen.add(id);
+                const task = entities.get(id);
+                if (!task) return [];
+                return [
+                  item(task),
+                  ...task.subTaskIds.flatMap((childId) => collect(childId)),
+                ];
+              };
+              return [
+                project.id,
+                [...project.taskIds, ...project.backlogTaskIds].flatMap((id) =>
+                  collect(id),
+                ),
+              ];
+            }),
+          );
           const allIds = new Set(all.map((task) => task.id));
           // Today can surface a scheduled subtask without its parent. Keep it
           // available in the widget's shared task source as the main panel does.
@@ -285,6 +307,7 @@ export class TaskElectronEffects {
               return task ? [item(task)] : [];
             }),
             all,
+            projectTasks,
             labels: {
               aiReady: this._translate.instant('GCF.TASK_WIDGET.AI_READY'),
               aiAdopt: this._translate.instant('GCF.TASK_WIDGET.AI_ADOPT'),

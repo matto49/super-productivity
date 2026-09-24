@@ -790,6 +790,7 @@ const updateTaskWidgetContent = (): void => {
       displayMode !== 'timer' && listData
         ? {
             tasks: listData.all,
+            projectTasks: listData.projectTasks,
             labels: listData.labels,
             scope: displayMode,
             activeView: listData.activeView,

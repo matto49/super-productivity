@@ -299,15 +299,17 @@ const renderContent = (data: TaskWidgetContentData): void => {
       projectGroup,
     );
     viewSelect.value = view;
-    const tasks = data.list.tasks.filter(
-      (t) =>
-        view === 'all' ||
-        (view === 'focus'
-          ? t.inProgress || t.review
-          : view === 'today'
-            ? t.inTodayView
-            : t.projectId === view),
-    );
+    const tasks =
+      data.list.projectTasks?.[view] ||
+      data.list.tasks.filter(
+        (t) =>
+          view === 'all' ||
+          (view === 'focus'
+            ? t.inProgress || t.review
+            : view === 'today'
+              ? t.inTodayView
+              : t.projectId === view),
+      );
 
     addButton.title = labels.add || '';
     addButton.setAttribute('aria-label', labels.add || '');
@@ -331,14 +333,35 @@ const renderContent = (data: TaskWidgetContentData): void => {
         taskPriority(b) - taskPriority(a) ||
         (view === 'today' ? (a.todayRank ?? 0) - (b.todayRank ?? 0) : 0),
     );
+    if (data.list.projectTasks?.[view]) {
+      const children = new Map<string, TaskWidgetListItem[]>();
+      for (const task of tasks) {
+        if (!task.parentId) continue;
+        children.set(task.parentId, [...(children.get(task.parentId) || []), task]);
+      }
+      const grouped: TaskWidgetListItem[] = [];
+      const append = (task: TaskWidgetListItem): void => {
+        grouped.push(task);
+        for (const child of children.get(task.id) || []) append(child);
+      };
+      for (const task of tasks
+        .filter((item) => !item.parentId)
+        .sort((a, b) => taskPriority(b) - taskPriority(a)))
+        append(task);
+      sortedTasks.splice(0, sortedTasks.length, ...grouped);
+    }
     list.replaceChildren(
       ...sortedTasks.map((task) => {
         const row = document.createElement('div');
-        row.className = 'list-task';
+        row.className = task.parentId ? 'list-task is-subtask' : 'list-task';
         row.dataset.taskId = task.id;
-        row.draggable = true;
+        row.draggable = !task.parentId;
         row.addEventListener('dragstart', (event) => {
-          if (editing || (event.target as HTMLElement).closest('input, button, select')) {
+          if (
+            task.parentId ||
+            editing ||
+            (event.target as HTMLElement).closest('input, button, select')
+          ) {
             event.preventDefault();
             return;
           }
@@ -354,6 +377,7 @@ const renderContent = (data: TaskWidgetContentData): void => {
           clearDropTarget();
           if (
             !draggedId ||
+            task.parentId ||
             draggedId === task.id ||
             draggedPriority !== taskPriority(task) ||
             (view !== 'today' && draggedProject !== task.projectId)
@@ -368,13 +392,16 @@ const renderContent = (data: TaskWidgetContentData): void => {
         row.addEventListener('drop', (event) => {
           if (
             !draggedId ||
+            task.parentId ||
             draggedId === task.id ||
             draggedPriority !== taskPriority(task) ||
             (view !== 'today' && draggedProject !== task.projectId)
           )
             return;
           event.preventDefault();
-          const ids = sortedTasks.map((item) => item.id).filter((id) => id !== draggedId);
+          const ids = sortedTasks
+            .filter((item) => !item.parentId && item.id !== draggedId)
+            .map((item) => item.id);
           const bounds = row.getBoundingClientRect();
           const midpoint = bounds.top + (bounds.height >> 1);
           const after = event.clientY >= midpoint;

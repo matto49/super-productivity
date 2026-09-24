@@ -329,6 +329,9 @@ body * {
 .list-task:last-child {
   border-bottom: 0;
 }
+.list-task.is-subtask {
+  padding-left: var(--s2);
+}
 .list-task input[type='checkbox'] {
   appearance: none;
   width: 15px;

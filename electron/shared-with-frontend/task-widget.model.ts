@@ -1,6 +1,7 @@
 export interface TaskWidgetListItem {
   id: string;
   title: string;
+  parentId?: string;
   codexThreadUrl?: string;
   inProgress?: boolean;
   review?: boolean;
@@ -27,6 +28,7 @@ export interface TaskWidgetListItem {
 export interface TaskWidgetListData {
   today: TaskWidgetListItem[];
   all: TaskWidgetListItem[];
+  projectTasks?: Record<string, TaskWidgetListItem[]>;
   activeView?: string;
   projects?: { id: string; title: string }[];
   labels: {
@@ -81,6 +83,7 @@ export interface TaskWidgetContentData {
   mode: 'pomodoro' | 'focus' | 'task' | 'idle';
   list?: {
     tasks: TaskWidgetListItem[];
+    projectTasks?: Record<string, TaskWidgetListItem[]>;
     labels: TaskWidgetListData['labels'];
     scope: 'today' | 'all';
     activeView?: string;
