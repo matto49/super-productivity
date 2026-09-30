@@ -15,6 +15,7 @@ import { TagService } from '../../features/tag/tag.service';
 import { TODAY_TAG } from '../../features/tag/tag.const';
 import { DateService } from '../date/date.service';
 import { isTodayWithOffset } from '../../util/is-today.util';
+import { canApplyConvertToSubTask } from '../../features/tasks/util/can-convert-task-to-sub-task';
 import {
   selectCurrentCycle,
   selectIsBreakTimeUp,
@@ -51,10 +52,10 @@ const ALLOWED_TASK_FIELDS = new Set<string>([
 /**
  * Relational fields that callers often try to set but must be rejected:
  * mutating them as plain values corrupts invariants (parent<->child links,
- * projectId inheritance, tag-ordering lists). Subtask creation is available
- * via `POST /tasks` with `parentId` — see `_handleCreateTask`.
+ * projectId inheritance, tag-ordering lists). Subtask creation and re-parenting
+ * are exposed via `parentId` and routed through task actions instead.
  */
-const REJECTED_TASK_FIELDS = ['parentId', 'subTaskIds'] as const;
+const REJECTED_TASK_FIELDS = ['subTaskIds'] as const;
 
 /**
  * Fields a subtask inherits from its parent at the reducer (`addSubTask`
@@ -95,6 +96,10 @@ interface WritableTaskFields {
   plannedAt?: number;
 }
 
+type ParentPatch =
+  | { hasParentId: false }
+  | { hasParentId: true; parentId: string | null };
+
 type FieldTypeError = { path: string; expected: string };
 
 /**
@@ -118,6 +123,26 @@ const validateWritableFields = (
 
 const firstRejectedField = (body: Record<string, unknown>): string | undefined =>
   REJECTED_TASK_FIELDS.find((field) => field in body);
+
+const getParentPatch = (
+  body: Record<string, unknown>,
+): ParentPatch | { error: FieldTypeError } => {
+  if (!Object.prototype.hasOwnProperty.call(body, 'parentId')) {
+    return { hasParentId: false };
+  }
+  const parentId = body.parentId;
+  if (
+    parentId !== null &&
+    parentId !== undefined &&
+    (typeof parentId !== 'string' || !parentId.trim())
+  ) {
+    return { error: { path: '$input.parentId', expected: 'string | null' } };
+  }
+  return {
+    hasParentId: true,
+    parentId: parentId == null ? null : parentId.trim(),
+  };
+};
 
 const getQueryParam = (
   query: Record<string, string | string[]>,
@@ -544,11 +569,34 @@ export class LocalRestApiHandlerService {
             requestId,
             400,
             'UNSUPPORTED_FIELD',
-            `${rejected} cannot be set via PATCH — re-parenting is not supported by this API`,
+            `${rejected} cannot be set via PATCH — use parentId to change task hierarchy`,
+          );
+        }
+
+        const parentPatch = getParentPatch(body);
+        if ('error' in parentPatch) {
+          return createErrorResponse(
+            requestId,
+            400,
+            'INVALID_INPUT',
+            'One or more task fields have an invalid type',
+            [parentPatch.error],
           );
         }
 
         const changes = pickAllowedFields(body);
+        if (
+          parentPatch.hasParentId &&
+          parentPatch.parentId &&
+          Object.prototype.hasOwnProperty.call(changes, 'projectId')
+        ) {
+          return createErrorResponse(
+            requestId,
+            400,
+            'UNSUPPORTED_FIELD',
+            'projectId cannot be changed while converting a task to a subtask',
+          );
+        }
         const validation = validateWritableFields(changes);
         if (!validation.ok) {
           return createErrorResponse(
@@ -605,7 +653,60 @@ export class LocalRestApiHandlerService {
           }
         }
 
-        this._taskService.update(taskId, changes);
+        if (parentPatch.hasParentId) {
+          const targetParentId = parentPatch.parentId;
+          if (targetParentId === task.id) {
+            return createErrorResponse(
+              requestId,
+              400,
+              'INVALID_INPUT',
+              'A task cannot be made a subtask of itself',
+            );
+          }
+
+          if (targetParentId) {
+            const parent = await this._getTaskById(targetParentId);
+            if (!parent) {
+              return createErrorResponse(
+                requestId,
+                404,
+                'PARENT_TASK_NOT_FOUND',
+                `Parent task ${targetParentId} not found`,
+              );
+            }
+            if (parent.parentId) {
+              return createErrorResponse(
+                requestId,
+                400,
+                'UNSUPPORTED_FIELD',
+                'Cannot nest subtasks: parent task is itself a subtask',
+              );
+            }
+            if (!task.parentId && !canApplyConvertToSubTask(task, parent)) {
+              return createErrorResponse(
+                requestId,
+                400,
+                'UNSUPPORTED_FIELD',
+                'Task cannot be converted to a subtask',
+              );
+            }
+            if (task.parentId && task.parentId !== targetParentId) {
+              this._taskService.moveSubTaskToParent(
+                task.id,
+                task.parentId,
+                targetParentId,
+              );
+            } else if (!task.parentId) {
+              this._taskService.convertToSubTask(task.id, targetParentId);
+            }
+          } else if (task.parentId) {
+            await this._taskService.convertToMainTask(task);
+          }
+        }
+
+        if (Object.keys(changes).length > 0) {
+          this._taskService.update(taskId, changes);
+        }
         return createSuccessResponse(requestId, 200, await this._getTaskById(taskId));
       }
 

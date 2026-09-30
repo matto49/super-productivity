@@ -24,7 +24,7 @@ import { IS_ELECTRON } from './app.constants';
 import { IS_MAC } from './util/is-mac';
 import { expandAnimation } from './ui/animations/expand.ani';
 import { warpRouteAnimation } from './ui/animations/warp-route';
-import { firstValueFrom, Subscription } from 'rxjs';
+import { combineLatest, firstValueFrom, Subscription } from 'rxjs';
 import { fadeAnimation } from './ui/animations/fade.ani';
 import { BannerService } from './core/banner/banner.service';
 import { LS } from './core/persistence/storage-keys.const';
@@ -37,7 +37,7 @@ import { LanguageService } from './core/language/language.service';
 import { WorkContextService } from './features/work-context/work-context.service';
 import { SyncTriggerService } from './imex/sync/sync-trigger.service';
 import { ActivatedRoute, RouterOutlet } from '@angular/router';
-import { concatMap, first, take } from 'rxjs/operators';
+import { first, switchMap, take } from 'rxjs/operators';
 
 import { IS_MOBILE } from './util/is-mobile';
 import { recordSearchNavDebug } from './util/search-nav-debug';
@@ -79,7 +79,6 @@ import { getDroppedUrl } from './core/drop-paste-input/drop-paste-input';
 import { readableUrl } from './util/readable-url';
 import { MobileBottomNavComponent } from './core-ui/mobile-bottom-nav/mobile-bottom-nav.component';
 import { StartupService } from './core/startup/startup.service';
-import { DataInitStateService } from './core/data-init/data-init-state.service';
 import { AppUriTaskActionsService } from './features/tasks/app-uri-actions/app-uri-task-actions.service';
 import { ExampleTasksService } from './core/example-tasks/example-tasks.service';
 import { KeyboardLayoutService } from './core/keyboard-layout/keyboard-layout.service';
@@ -89,6 +88,8 @@ import { OnboardingHintComponent } from './features/onboarding/onboarding-hint.c
 import { OnboardingHintService } from './features/onboarding/onboarding-hint.service';
 import { MaterialIconsLoaderService } from './ui/material-icons-loader.service';
 import { BrowserTitleService } from './core/browser-title/browser-title.service';
+import { selectAllTasks } from './features/tasks/store/task.selectors';
+import { selectAllProjectsExceptInbox } from './features/project/store/project.selectors';
 
 const ONBOARDING_PRESET_EXIT_DELAY = 1000;
 const ONBOARDING_ENTRANCE_COMPLETE_DELAY = 2000;
@@ -164,7 +165,6 @@ export class AppComponent implements OnDestroy, AfterViewInit {
   // before the user opens the (lazy-loaded) Settings page.
   private _taskWidgetSettingsService = inject(TaskWidgetSettingsService);
   private _keyboardLayoutService = inject(KeyboardLayoutService);
-  private _dataInitStateService = inject(DataInitStateService);
   private _materialIconsLoaderService = inject(MaterialIconsLoaderService);
   // Injected only to trigger its constructor eagerly at app start, so a
   // cold-launch add-task/complete-task URL action is never missed.
@@ -238,14 +238,20 @@ export class AppComponent implements OnDestroy, AfterViewInit {
 
     // Skip onboarding for existing users with data
     if (this.isShowOnboardingPresets()) {
-      this._dataInitStateService.isAllDataLoadedInitially$
+      this._syncTriggerService.afterInitialSyncDoneStrict$
         .pipe(
-          concatMap(() => this._projectService.list$),
+          switchMap(() =>
+            combineLatest([
+              this._store.select(selectAllTasks),
+              this._store.select(selectAllProjectsExceptInbox),
+            ]).pipe(first()),
+          ),
           first(),
         )
-        .subscribe((projectList) => {
-          if (projectList.length > 2) {
+        .subscribe(([tasks, projects]) => {
+          if (tasks.length > 0 || projects.length > 0) {
             localStorage.setItem(LS.ONBOARDING_PRESET_DONE, 'true');
+            localStorage.setItem(LS.ONBOARDING_HINTS_DONE, 'true');
             this.isShowOnboardingPresets.set(false);
           }
         });

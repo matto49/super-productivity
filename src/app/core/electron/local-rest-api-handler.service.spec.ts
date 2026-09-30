@@ -157,6 +157,9 @@ describe('LocalRestApiHandlerService', () => {
         'add',
         'addSubTaskTo',
         'update',
+        'convertToSubTask',
+        'convertToMainTask',
+        'moveSubTaskToParent',
         'remove',
         'setCurrentId',
         'moveToArchive',
@@ -1215,22 +1218,122 @@ describe('LocalRestApiHandlerService', () => {
         });
       });
 
-      it('should reject parentId in PATCH body with 400', async () => {
-        const mockTask = createMockTask('task-1');
+      it('should convert a top-level task to a subtask via parentId', async () => {
+        const mockTask = createMockTask('task-1', { projectId: 'project-1' });
+        const parentTask = createMockTask('parent-1', { projectId: 'project-1' });
+        Object.defineProperty(taskServiceMock, 'getByIdOnce$', {
+          get: () => (id: string) =>
+            of(id === 'task-1' ? mockTask : id === 'parent-1' ? parentTask : undefined),
+        });
+
+        const response = await sendRequestAndWait(
+          createRequest('PATCH', '/tasks/task-1', {
+            body: { parentId: 'parent-1' },
+          }),
+        );
+
+        expect(response.body.ok).toBe(true);
+        expect(taskServiceMock.convertToSubTask).toHaveBeenCalledOnceWith(
+          'task-1',
+          'parent-1',
+        );
+        expect(taskServiceMock.update).not.toHaveBeenCalled();
+      });
+
+      it('should convert a subtask to a top-level task via null parentId', async () => {
+        const mockTask = createMockTask('subtask-1', {
+          parentId: 'parent-1',
+          projectId: 'project-1',
+        });
         Object.defineProperty(taskServiceMock, 'getByIdOnce$', {
           get: () => (_id: string) => of(mockTask),
         });
 
         const response = await sendRequestAndWait(
-          createRequest('PATCH', '/tasks/task-1', {
-            body: { title: 'Updated', parentId: 'some-parent' },
+          createRequest('PATCH', '/tasks/subtask-1', {
+            body: { parentId: null },
           }),
         );
 
-        expect(response.body.ok).toBe(false);
-        expect(response.status).toBe(400);
-        expect((response.body as any).error.code).toBe('UNSUPPORTED_FIELD');
+        expect(response.body.ok).toBe(true);
+        expect(taskServiceMock.convertToMainTask).toHaveBeenCalledOnceWith(mockTask);
         expect(taskServiceMock.update).not.toHaveBeenCalled();
+      });
+
+      it('should move a subtask to a different parent via parentId', async () => {
+        const mockTask = createMockTask('subtask-1', {
+          parentId: 'parent-1',
+          projectId: 'project-1',
+        });
+        const targetParent = createMockTask('parent-2', { projectId: 'project-1' });
+        Object.defineProperty(taskServiceMock, 'getByIdOnce$', {
+          get: () => (id: string) =>
+            of(
+              id === 'subtask-1'
+                ? mockTask
+                : id === 'parent-2'
+                  ? targetParent
+                  : undefined,
+            ),
+        });
+
+        const response = await sendRequestAndWait(
+          createRequest('PATCH', '/tasks/subtask-1', {
+            body: { parentId: 'parent-2' },
+          }),
+        );
+
+        expect(response.body.ok).toBe(true);
+        expect(taskServiceMock.moveSubTaskToParent).toHaveBeenCalledOnceWith(
+          'subtask-1',
+          'parent-1',
+          'parent-2',
+        );
+        expect(taskServiceMock.update).not.toHaveBeenCalled();
+      });
+
+      it('should reject an unknown parentId', async () => {
+        const mockTask = createMockTask('task-1');
+        Object.defineProperty(taskServiceMock, 'getByIdOnce$', {
+          get: () => (id: string) => of(id === 'task-1' ? mockTask : undefined),
+        });
+
+        const response = await sendRequestAndWait(
+          createRequest('PATCH', '/tasks/task-1', {
+            body: { parentId: 'missing-parent' },
+          }),
+        );
+
+        expect(response.status).toBe(404);
+        expect(response.body.ok).toBe(false);
+        if (response.body.ok) {
+          throw new Error('Expected an error response');
+        }
+        expect(response.body.error.code).toBe('PARENT_TASK_NOT_FOUND');
+        expect(taskServiceMock.convertToSubTask).not.toHaveBeenCalled();
+      });
+
+      it('should reject converting a parent task into a subtask', async () => {
+        const mockTask = createMockTask('task-1', { subTaskIds: ['child-1'] });
+        const parentTask = createMockTask('parent-1');
+        Object.defineProperty(taskServiceMock, 'getByIdOnce$', {
+          get: () => (id: string) =>
+            of(id === 'task-1' ? mockTask : id === 'parent-1' ? parentTask : undefined),
+        });
+
+        const response = await sendRequestAndWait(
+          createRequest('PATCH', '/tasks/task-1', {
+            body: { parentId: 'parent-1' },
+          }),
+        );
+
+        expect(response.status).toBe(400);
+        expect(response.body.ok).toBe(false);
+        if (response.body.ok) {
+          throw new Error('Expected an error response');
+        }
+        expect(response.body.error.code).toBe('UNSUPPORTED_FIELD');
+        expect(taskServiceMock.convertToSubTask).not.toHaveBeenCalled();
       });
 
       it('should reject subTaskIds in PATCH body with 400', async () => {

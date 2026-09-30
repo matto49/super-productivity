@@ -1,5 +1,6 @@
 import { IS_ELECTRON } from '../../app.constants';
 import { DistChannel } from '../../util/get-app-version-str';
+import { versions } from '../../../environments/versions';
 
 /**
  * Channels whose store / package manager updates the app on its own —
@@ -23,6 +24,12 @@ export const isUpdateCheckPossible = (): boolean => {
   if (!IS_ELECTRON) {
     // Mobile builds update via their stores; the web app updates via the
     // service worker (InitialPwaUpdateCheckService).
+    return false;
+  }
+  if (versions.revision === 'NO_REV') {
+    // Locally built source checkouts have no release revision metadata. For
+    // them, the official download banner points at upstream builds that can
+    // overwrite local patches rather than update this checkout.
     return false;
   }
   const channel = window.ea?.getDistChannel?.();

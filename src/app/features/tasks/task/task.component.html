@@ -108,10 +108,16 @@
           @if (activity.aiMs || activity.humanMs) {
             <div class="activity-time">
               @if (activity.aiMs) {
-                <span>{{ T.GCF.TASK_WIDGET.AI_TIME | translate }} {{ activity.aiMs | msToString }}</span>
+                <span
+                  >{{ T.GCF.TASK_WIDGET.AI_TIME | translate }}
+                  {{ activity.aiMs | msToString }}</span
+                >
               }
               @if (activity.humanMs) {
-                <span>{{ T.GCF.TASK_WIDGET.HUMAN_TIME | translate }} {{ activity.humanMs | msToString }}</span>
+                <span
+                  >{{ T.GCF.TASK_WIDGET.HUMAN_TIME | translate }}
+                  {{ activity.humanMs | msToString }}</span
+                >
               }
             </div>
           }

@@ -1296,10 +1296,40 @@ export class TaskService {
     this._store.dispatch(
       TaskSharedActions.convertToMainTask({
         task,
-        parentTagIds: parent.tagIds,
+        parentTagIds: parent?.tagIds,
         isPlanForToday: this._workContextService.activeWorkContextId === TODAY_TAG.id,
         today: this._dateService.todayStr(),
         modified: now,
+      }),
+    );
+  }
+
+  convertToSubTask(
+    taskId: string,
+    targetParentId: string,
+    afterTaskId: string | null = null,
+  ): void {
+    this._store.dispatch(
+      TaskSharedActions.convertToSubTask({
+        taskId,
+        targetParentId,
+        afterTaskId,
+      }),
+    );
+  }
+
+  moveSubTaskToParent(
+    taskId: string,
+    sourceParentId: string,
+    targetParentId: string,
+    afterTaskId: string | null = null,
+  ): void {
+    this._store.dispatch(
+      moveSubTask({
+        taskId,
+        srcTaskId: sourceParentId,
+        targetTaskId: targetParentId,
+        afterTaskId,
       }),
     );
   }
