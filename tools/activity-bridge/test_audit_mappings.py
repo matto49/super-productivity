@@ -19,6 +19,14 @@ class MappingAuditTests(unittest.TestCase):
         self.assertEqual(result['tasks'][0]['semanticVerification'], 'not_checked')
         self.assertNotIn('notes', result['tasks'][0])
 
+    def test_host_specific_link_keeps_thread_id_for_coverage(self):
+        hosted = task(notes='[Open](codex://threads/' + THREAD +
+                      '?hostId=remote-ssh-discovered%3Amac-cpa)')
+        result = audit([hosted], {'observerBindings': [
+            {'taskId': 'one', 'threadId': THREAD}]})
+        self.assertEqual(result['tasks'][0]['threadIds'], [THREAD])
+        self.assertEqual(result['tasks'][0]['coverage']['observerBindings']['noteThreadsWithoutBinding'], [])
+
     def test_title_matcher_is_not_a_stale_task_label(self):
         row = audit([task()], {'bindings': [
             {'taskId': 'one', 'threadId': THREAD, 'title': 'Different thread title'}],

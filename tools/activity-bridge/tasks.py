@@ -32,7 +32,7 @@ def compact(task, links=False):
     result = {k: task.get(k) for k in ('id', 'title', 'projectId', 'isDone', 'parentId')}
     if links:
         result['codexLinks'] = sorted(set(re.findall(
-            r'codex://threads/[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}(?=[\s)]|$)',
+            r'codex://threads/[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}(?:\?hostId=[A-Za-z0-9_.%-]+)?(?=[\s)]|$)',
             task.get('notes') or '',
         )))
     return result

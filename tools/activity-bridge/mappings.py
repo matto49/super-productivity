@@ -1,6 +1,7 @@
 """Canonical local associations; legacy arrays are fallback only for unmanaged tasks."""
 import json
 from pathlib import Path
+from urllib.parse import quote
 
 PREFIX = '<!-- sp-codex-v1:'
 SUFFIX = ' -->'
@@ -91,7 +92,9 @@ def projection(task, mapping, result):
     human_binding = not pending and any(
         link['scope'] == 'wholeThread' and link['role'] != 'background'
         and link.get('humanTitleMatch') for link in links)
-    return {'threadUrl': 'codex://threads/' + selected['threadId'] if selected else '',
+    profile = mapping['profiles'][selected['profileId']] if selected else None
+    return {'threadUrl': ('codex://threads/' + selected['threadId'] +
+                          '?hostId=' + quote(profile['hostId'], safe='')) if selected else '',
             'threadCount': len(links), 'status': status, 'checkedAt': result['asOf'],
             'since': result['since'], 'revision': mapping['revision'],
             'humanStatus': result['humanCollection'] if human_binding else 'not_collected'}

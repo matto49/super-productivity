@@ -10,6 +10,7 @@ describe('isExternalUrlSchemeAllowed', () => {
   describe('allowed schemes', () => {
     const allowed = [
       'codex://threads/01a0810c-9692-7053-b206-426de3ef8c8e',
+      'codex://threads/01a0810c-9692-7053-b206-426de3ef8c8e?hostId=remote-ssh-discovered%3Adevbox',
       'http://example.com',
       'https://example.com/path?q=1#frag',
       'HTTPS://EXAMPLE.COM', // scheme is case-insensitive

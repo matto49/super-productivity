@@ -64,6 +64,8 @@ class MappingTests(unittest.TestCase):
         task = mapping['tasks'][0]
         result = {'asOf': '2026-09-24T00:00:00Z', 'since': '2026-09-23T00:00:00Z',
                   'missingSessionTaskIds': [], 'humanCollection': 'collected'}
+        self.assertEqual(projection(task, mapping, result)['threadUrl'],
+                         'codex://threads/one?hostId=mac')
         self.assertEqual(projection(task, mapping, result)['humanStatus'], 'not_collected')
         task['links'][0].update(scope='wholeThread', humanTitleMatch='Work')
         self.assertEqual(projection(task, mapping, result)['humanStatus'], 'collected')

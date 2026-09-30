@@ -5,7 +5,7 @@ const {
   getCodexAssociation,
   getCodexThreadLink,
 } = require('./shared-with-frontend/codex-thread-link.ts');
-const url = 'codex://threads/01a08530-a5b7-7923-97c4-cc8ab25958f7';
+const url = 'codex://threads/01a08530-a5b7-7923-97c4-cc8ab25958f7?hostId=remote-ssh-discovered%3Amac-cpa';
 const value = {
   threadUrl: url,
   threadCount: 2,
