@@ -141,3 +141,103 @@ Reports retain collection intervals, thread/turn identifiers and mapping revisio
 for auditing. Changing scope replaces prior daily receipts for the same source,
 including days now empty. Manual time is retained by the activity API's delta
 merge. CLI collectors sharing a ledger use a nonblocking file lock.
+
+## Two-layer local usage estimates
+
+`foreground_sampler.swift --facts CONFIG` records facts every 5 seconds, separately
+from legacy ledger import. `usage.py --config CONFIG` reduces these into intervals
+and task estimates. Run the reducer every 60 seconds using a user LaunchAgent.
+Neither component adds these estimates to native `timeSpent`.
+
+Private config example (all paths absolute):
+
+```json
+{
+  "factsDir": "/private/path/usage-facts",
+  "reportsDir": "/private/path/usage-reports",
+  "rulesFile": "/private/path/usage-rules.json",
+  "timezone": "Asia/Shanghai",
+  "idleSeconds": 60,
+  "syncNotes": true,
+  "excludedApps": ["com.1password.1password", "com.apple.keychainaccess"]
+}
+```
+
+Rules file: `{"schemaVersion":1,"rules":[...]}`. Each rule contains `taskId`,
+`app` (bundle ID), `kind`, `value`, and `effectiveFrom` (Unix seconds). Supported
+kinds are verified `codexThreadTitle` (exact match), `documentPrefix` (URL origin
+and path boundary), and `worktree` (file document path boundary). Only enable a
+rule after observing its signal and checking its task ownership. A Codex title
+is weaker evidence than a thread ID: reused titles or mixed discussions need
+rules reviewed or removed. No browser URL or editor worktree inference is made
+from generic window titles. AXDocument availability depends on the application.
+
+Use `install_foreground_sampler.sh --facts /absolute/usage-config.json` after
+backing up and stopping the old LaunchAgent. This prepares the app and sampler
+plist; bootstrap it with `launchctl bootstrap gui/$(id -u) PLIST`. A reducer plist
+should use an absolute Python 3.9+ executable and absolute `usage.py` path with
+`--config CONFIG`, `RunAtLoad=true`, `StartInterval=60`. Keep its logs private.
+Replacing the app binary may require toggling its Accessibility permission in
+System Settings. Verify **the background** `usage-facts/status.json` contains
+`accessibilityTrusted: true` and a fresh `checkedAt`; interactive checks alone
+are insufficient. Keep the prior app/plist backup for rollback.
+
+Pause capture: create `usage-facts/PAUSED`; resume: remove that file. Stop services:
+`launchctl bootout gui/$(id -u)/local.matto.foreground-sampler` and
+`launchctl bootout gui/$(id -u)/local.matto.usage-reducer`. To prevent next-login
+startup, move their plists out of `~/Library/LaunchAgents`. Existing records stay
+on disk. No automatic retention deletion is configured in this version.
+
+Reports: `usage-reports/latest.md` is the readable timeline; `latest.json` has
+per-day totals and all intervals. Raw facts remain local with private permissions.
+Only today's whole-minute task totals are synced into a delimited notes section;
+existing task notes are freshly read and preserved. The API has no compare-and-swap,
+so a concurrent notes edit between the final read and patch remains a small race.
+Done tasks are not updated. Historical assignment remains in the local report.
+Missing tasks/API failures increment `sync.errors`; facts and reports still work.
+
+Intervals require two observations from the same process session within 15 seconds.
+No last-sample extrapolation occurs. Idle >60 seconds, locked/private/paused states,
+permission failures and gaps do not count as task time. Context switches and
+ambiguous rules remain unassigned. Reading without input may be underestimated;
+foreground presence also does not prove attention. Private-window detection is
+best-effort from titles; exclude an entire app if reliable exclusion is required.
+URL query, fragment and credentials are stripped; titles and document paths can
+still contain sensitive information. No screenshots, text fields or keystrokes
+are recorded. Review local facts before sharing them.
+
+Validation: `python3 -m unittest discover -s tools/activity-bridge -p test_usage.py`
+and compile the Swift sampler then run `--self-test`.
+
+### Codex session sampler
+
+`install_session_sampler.py --config /absolute/session-config.json` prepares a
+separate `MattoSessionSampler.app` and LaunchAgent without replacing the existing
+sampler. Use separate `factsDir` and `reportsDir`, and `syncNotes: false` during
+validation. Do not sum the two collectors' overlapping intervals.
+
+The current Codex adapter requires the focused window's single AXWebArea title
+to agree with the static title inside its single chat toolbar. Sidebar titles
+are never used as evidence. It rechecks the title and focused window after the
+index lookup. The only AXValue read is the toolbar title; no message or input
+text is read. The run loop processes foreground application change notifications.
+
+Optional `threadDatabases` lists absolute Codex state SQLite paths. They are
+opened read-only, matching the displayed `name` (or `title` when not renamed).
+Exactly one distinct UUID across all configured indexes produces `threadId`
+with evidence `unique_display_title`. This is a title-to-index inference, not
+an ID read directly from the UI. Duplicate titles, missing indexes, schema
+changes and unknown titles produce no ID. Remote or cloud sessions absent from
+these local indexes remain unresolved; uniqueness covers only configured indexes.
+
+The reducer supports exact `codexThreadId` rules and reports daily per-ID totals.
+Intervals spanning title/ID changes, idle, lock or gaps are not credited to a
+thread. Unknown identities stay visible on the timeline but are not combined
+into a named thread total. Historical generic `ChatGPT` samples cannot be repaired.
+
+Before bootstrapping the new agent, request its Accessibility permission using
+`open -n APP --args --request-access CONFIG`. Confirm the **background** status
+shows `accessibilityTrusted: true`. `--check-session CONFIG` is a diagnostic for
+the selected Codex window; `--sample CONFIG` inspects the actual frontmost app.
+The session report uses the same `usage.py --config CONFIG` reducer; its own
+StartInterval agent can regenerate reports once a minute.

@@ -7,13 +7,18 @@ app_dir="$HOME/Applications/MattoForegroundSampler.app"
 binary="$app_dir/Contents/MacOS/foreground-sampler"
 agent="$HOME/Library/LaunchAgents/local.matto.foreground-sampler.plist"
 private_dir="$HOME/todo-review-20260907/activity"
-config="$private_dir/config.json"
+mode="${1:---run}"
+case "$mode" in
+  --run) config="$private_dir/config.json" ;;
+  --facts) config="${2:-$private_dir/usage-config.json}" ;;
+  *) echo "Usage: $0 [--run | --facts CONFIG]" >&2; exit 1 ;;
+esac
 
 if [[ ! -f "$config" ]]; then
   echo "Activity config is missing" >&2
   exit 1
 fi
-if launchctl list | /usr/bin/grep -q 'local.matto.foreground-sampler'; then
+if launchctl print "gui/$(id -u)/local.matto.foreground-sampler" >/dev/null 2>&1; then
   echo "Stop the running sampler before replacing its executable" >&2
   exit 1
 fi
@@ -43,7 +48,7 @@ cat > "$agent" <<PLIST
   <key>Label</key><string>local.matto.foreground-sampler</string>
   <key>ProgramArguments</key><array>
     <string>$binary</string>
-    <string>--run</string>
+    <string>$mode</string>
     <string>$config</string>
   </array>
   <key>RunAtLoad</key><true/>
